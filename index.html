@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contour Crafted</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        background-color: #1a1a1a;
+        color: #e5e5e5;
+      }
+      /* Custom Scrollbar for the panel */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #262626; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #525252; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #737373; 
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "d3-contour": "https://esm.sh/d3-contour@^4.0.2",
+    "paper": "https://esm.sh/paper@^0.12.18",
+    "jspdf": "https://esm.sh/jspdf@2.5.1"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body>
+    <div id="root"></div>
+  <script type="module" src="/src/index.tsx"></script>
+</body>
+</html>
