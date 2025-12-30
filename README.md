@@ -69,10 +69,16 @@ npm run preview
 此 repo 使用 `gh-pages` 部署到 GitHub Pages。
 
 ```bash
+npm run build
 npm run deploy
 ```
 
-注意：若你的 repo 名稱或 Pages 路徑不同，請同步更新 `package.json` 的 `homepage`。
+注意：
+
+- 若你的 repo 名稱或 Pages 路徑不同，請同步更新 `package.json` 的 `homepage`。
+- GitHub Pages 是子路徑部署（例如 `/call-me-designer/`），Vite 需要設定 `base`，不然建構後會去抓 `https://<user>.github.io/assets/*` 而 404 造成白屏。
+   - 本專案已在 `vite.config.ts` 設定：production 時 `base = '/call-me-designer/'`
+   - 若你改了 repo 名稱，請一併更新這個路徑
 
 ### 其他靜態主機（Netlify / Vercel / Cloudflare Pages）
 
