@@ -12,6 +12,8 @@ interface EditorCanvasProps {
 
 export interface EditorCanvasHandle {
   exportSVG: () => void;
+  exportSVGAligned: () => void;
+  exportSVGTrimmed: () => void;
   exportPDF: () => void;
   undo: () => void;
   redo: () => void;
@@ -107,25 +109,85 @@ const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(({ appSta
 
   // Expose methods to parent
   useImperativeHandle(ref, () => ({
-    exportSVG: () => {
+    exportSVGAligned: () => {
       if (!scopeRef.current || !appState.imageWidth || !appState.imageHeight) return;
       const scope = scopeRef.current;
-      
+
       const raster = scope.project.getItem({ name: 'mainImage' });
       const originalVisibility = raster ? raster.visible : true;
-      
-      if (raster) {
-        raster.visible = false;
-      }
+      if (raster) raster.visible = false;
 
-      const svgString = scope.project.exportSVG({ 
+      const svgString = scope.project.exportSVG({
         asString: true,
-        bounds: new paper.Rectangle(0, 0, appState.imageWidth, appState.imageHeight)
+        bounds: new paper.Rectangle(0, 0, appState.imageWidth, appState.imageHeight),
       }) as string;
 
-      if (raster) {
-        raster.visible = originalVisibility;
-      }
+      if (raster) raster.visible = originalVisibility;
+
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'contour-crafted-outline-aligned.svg';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    },
+
+    exportSVGTrimmed: () => {
+      if (!scopeRef.current || !appState.imageWidth || !appState.imageHeight) return;
+      const scope = scopeRef.current;
+
+      const pathsGroup = scope.project.getItem({ name: 'outlines' });
+      if (!pathsGroup) return;
+
+      const raster = scope.project.getItem({ name: 'mainImage' });
+      const originalVisibility = raster ? raster.visible : true;
+      if (raster) raster.visible = false;
+
+      // Export tightly around the outline paths (not the full image bounds).
+      // Use strokeBounds so the exported viewBox doesn't clip the visible stroke.
+      const b = (pathsGroup as any).strokeBounds ?? pathsGroup.bounds;
+      const padding = Math.max(0, Math.ceil(appState.strokeWidth / 2));
+      const exportBounds = new paper.Rectangle(
+        b.x - padding,
+        b.y - padding,
+        b.width + padding * 2,
+        b.height + padding * 2
+      );
+
+      const svgString = scope.project.exportSVG({
+        asString: true,
+        bounds: exportBounds,
+      }) as string;
+
+      if (raster) raster.visible = originalVisibility;
+
+      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'contour-crafted-outline-trimmed.svg';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    },
+
+    exportSVG: () => {
+      // Back-compat: default export is the aligned version for easy overlay with the original image.
+      if (!scopeRef.current || !appState.imageWidth || !appState.imageHeight) return;
+      const scope = scopeRef.current;
+
+      const raster = scope.project.getItem({ name: 'mainImage' });
+      const originalVisibility = raster ? raster.visible : true;
+      if (raster) raster.visible = false;
+
+      const svgString = scope.project.exportSVG({
+        asString: true,
+        bounds: new paper.Rectangle(0, 0, appState.imageWidth, appState.imageHeight),
+      }) as string;
+
+      if (raster) raster.visible = originalVisibility;
 
       const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(blob);

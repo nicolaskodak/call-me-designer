@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import EditorCanvas, { EditorCanvasHandle } from './components/EditorCanvas';
 import Controls from './components/Controls';
-import MockupCanvas from './components/MockupCanvas';
+import MockupCanvas, { MockupCanvasHandle } from './components/MockupCanvas';
 import { ActiveTab, AppState, DEFAULT_MOCKUP_STATE, DEFAULT_STATE, MockupInstance, MockupLayer, MockupState } from './types';
 import { loadImage } from './utils/imageProcessing';
 
@@ -14,6 +14,7 @@ const App: React.FC = () => {
   const [canRedo, setCanRedo] = useState(false);
   
   const editorRef = useRef<EditorCanvasHandle>(null);
+  const mockupRef = useRef<MockupCanvasHandle>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -54,6 +55,45 @@ const App: React.FC = () => {
       result = result.replace(/<svg(\s|>)/, '<svg height="100%"$1');
     }
     return result;
+  };
+
+  const measureSvgBBox = (svgText: string, viewportW: number, viewportH: number, padding = 2) => {
+    const host = document.createElement('div');
+    host.style.position = 'absolute';
+    host.style.left = '-100000px';
+    host.style.top = '-100000px';
+    host.style.width = '0';
+    host.style.height = '0';
+    host.style.overflow = 'hidden';
+    host.style.visibility = 'hidden';
+
+    try {
+      host.innerHTML = svgText.trim();
+      const svg = host.querySelector('svg') as SVGGraphicsElement | null;
+      if (!svg) {
+        return { x: 0, y: 0, width: viewportW, height: viewportH };
+      }
+
+      svg.setAttribute('width', String(viewportW));
+      svg.setAttribute('height', String(viewportH));
+
+      document.body.appendChild(host);
+      const bbox = svg.getBBox();
+
+      const x0 = Math.max(0, bbox.x - padding);
+      const y0 = Math.max(0, bbox.y - padding);
+      const x1 = Math.min(viewportW, bbox.x + bbox.width + padding);
+      const y1 = Math.min(viewportH, bbox.y + bbox.height + padding);
+
+      const width = Math.max(1, x1 - x0);
+      const height = Math.max(1, y1 - y0);
+
+      return { x: x0, y: y0, width, height };
+    } catch {
+      return { x: 0, y: 0, width: viewportW, height: viewportH };
+    } finally {
+      if (host.parentNode) host.parentNode.removeChild(host);
+    }
   };
 
   const newId = () => {
@@ -218,7 +258,26 @@ const App: React.FC = () => {
 
   const handleAutoLayout = () => {
     setMockupState(prev => {
-      const layerMap = new Map<string, MockupLayer>(prev.layers.map(l => [l.id, l] as const));
+      const layers = prev.layers.map(layer => {
+        const missingLayout =
+          layer.layoutWidth == null ||
+          layer.layoutHeight == null ||
+          layer.layoutX == null ||
+          layer.layoutY == null;
+
+        if (!missingLayout) return layer;
+
+        const bbox = measureSvgBBox(layer.svgText, layer.width, layer.height);
+        return {
+          ...layer,
+          layoutX: bbox.x,
+          layoutY: bbox.y,
+          layoutWidth: bbox.width,
+          layoutHeight: bbox.height,
+        };
+      });
+
+      const layerMap = new Map<string, MockupLayer>(layers.map(l => [l.id, l] as const));
 
       const baseInstances = prev.allowRotate90
         ? prev.instances
@@ -230,8 +289,8 @@ const App: React.FC = () => {
           if (!layer) return null;
           return {
             id: inst.id,
-            w: layer.width + prev.minGap,
-            h: layer.height + prev.minGap,
+            w: (layer.layoutWidth ?? layer.width) + prev.minGap,
+            h: (layer.layoutHeight ?? layer.height) + prev.minGap,
           };
         })
         .filter((x): x is PackRect => Boolean(x));
@@ -251,7 +310,7 @@ const App: React.FC = () => {
       const notPlacedCount = result.notPlaced.length;
       const message = `排圖完成：塞得進去 ${placedCount} 個，塞不進去 ${notPlacedCount} 個。${prev.allowRotate90 ? '（允許 90° 旋轉）' : ''}`;
 
-      return { ...prev, instances, notPlacedInstanceIds, lastLayoutMessage: message };
+      return { ...prev, layers, instances, notPlacedInstanceIds, lastLayoutMessage: message };
     });
   };
 
@@ -344,16 +403,22 @@ const App: React.FC = () => {
 
       const imageUrl = URL.createObjectURL(entry.image);
       try {
-        const [img, svgText] = await Promise.all([loadImage(imageUrl), entry.svg.text()]);
+        const [img, svgTextRaw] = await Promise.all([loadImage(imageUrl), entry.svg.text()]);
+        const svgText = normalizeSvgForOverlay(svgTextRaw);
+        const bbox = measureSvgBBox(svgText, img.width, img.height);
 
         const layerId = newId();
         layersToAdd.push({
           id: layerId,
           name: stem,
           imageUrl,
-          svgText: normalizeSvgForOverlay(svgText),
+          svgText,
           width: img.width,
           height: img.height,
+          layoutX: bbox.x,
+          layoutY: bbox.y,
+          layoutWidth: bbox.width,
+          layoutHeight: bbox.height,
           totalCount: 1,
         });
 
@@ -385,16 +450,22 @@ const App: React.FC = () => {
     }
   };
 
-  const handleExport = () => {
-    if (editorRef.current) {
-      editorRef.current.exportSVG();
-    }
+  const handleExportSvgAligned = () => {
+    editorRef.current?.exportSVGAligned();
+  };
+
+  const handleExportSvgTrimmed = () => {
+    editorRef.current?.exportSVGTrimmed();
   };
 
   const handleExportPDF = () => {
       if (editorRef.current) {
           editorRef.current.exportPDF();
       }
+  };
+
+  const handleExportMockupPDF = () => {
+    mockupRef.current?.exportPDF();
   };
 
   const handleUndo = () => editorRef.current?.undo();
@@ -418,7 +489,9 @@ const App: React.FC = () => {
         setMockupState={setMockupState}
         onSetLayerTotalCount={setLayerTotalCount}
         onAutoLayout={handleAutoLayout}
-        onExport={handleExport}
+        onExportMockupPDF={handleExportMockupPDF}
+        onExportSvgAligned={handleExportSvgAligned}
+        onExportSvgTrimmed={handleExportSvgTrimmed}
         onExportPDF={handleExportPDF}
         segmentCount={segmentCount}
         onUndo={handleUndo}
@@ -429,7 +502,7 @@ const App: React.FC = () => {
       
       <main className="flex-1 relative h-full bg-[radial-gradient(#333_1px,transparent_1px)] [background-size:16px_16px] bg-neutral-900">
         {activeTab === 'mockup' ? (
-          <MockupCanvas mockupState={mockupState} setMockupState={setMockupState} />
+          <MockupCanvas ref={mockupRef} mockupState={mockupState} setMockupState={setMockupState} />
         ) : !appState.imageUrl ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-500 pointer-events-none">
             <div className="w-24 h-24 mb-4 border-2 border-dashed border-neutral-700 rounded-xl flex items-center justify-center opacity-50">

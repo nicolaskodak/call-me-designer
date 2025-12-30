@@ -45,6 +45,11 @@ export interface Point {
     svgText: string;
     width: number;
     height: number;
+    /** layout box derived from SVG outline bbox (defaults to full image if unavailable) */
+    layoutX: number;
+    layoutY: number;
+    layoutWidth: number;
+    layoutHeight: number;
     /** total instances count for this layer (0 => delete) */
     totalCount: number;
   }

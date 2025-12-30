@@ -13,7 +13,9 @@ interface ControlsProps {
   setMockupState: React.Dispatch<React.SetStateAction<MockupState>>;
   onSetLayerTotalCount: (layerId: string, totalCount: number) => void;
   onAutoLayout: () => void;
-  onExport: () => void;
+  onExportMockupPDF: () => void;
+  onExportSvgAligned: () => void;
+  onExportSvgTrimmed: () => void;
   onExportPDF: () => void;
   segmentCount: number;
   onUndo: () => void;
@@ -33,7 +35,9 @@ const Controls: React.FC<ControlsProps> = ({
     setMockupState,
     onSetLayerTotalCount,
     onAutoLayout,
-    onExport,
+  onExportMockupPDF,
+    onExportSvgAligned,
+    onExportSvgTrimmed,
     onExportPDF,
     segmentCount,
     onUndo,
@@ -208,6 +212,16 @@ const Controls: React.FC<ControlsProps> = ({
                 className="w-full flex items-center justify-center gap-2 bg-neutral-700 hover:bg-neutral-600 text-white py-2 rounded text-xs transition disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 排圖
+              </button>
+
+              <button
+                onClick={onExportMockupPDF}
+                disabled={mockupState.instances.length === 0 || mockupState.notPlacedInstanceIds.length === mockupState.instances.length}
+                className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded text-xs transition disabled:opacity-30 disabled:cursor-not-allowed"
+                title="只匯出塞得進去的項目（不含淺黃色項目）"
+              >
+                <FileText className="w-3 h-3" />
+                匯出 PDF（排除塞不進）
               </button>
 
               {mockupState.lastLayoutMessage ? (
@@ -426,12 +440,21 @@ const Controls: React.FC<ControlsProps> = ({
         {/* Actions */}
         <div className="pt-4 mt-auto space-y-2">
              <button 
-                onClick={onExport}
+               onClick={onExportSvgAligned}
                 className="w-full flex items-center justify-center gap-2 bg-neutral-700 hover:bg-neutral-600 text-white py-3 rounded-lg font-medium transition shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={!appState.imageUrl}
              >
                 <Download className="w-4 h-4" />
-                Export SVG
+               匯出 SVG（對齊原圖）
+             </button>
+
+             <button 
+               onClick={onExportSvgTrimmed}
+               className="w-full flex items-center justify-center gap-2 bg-neutral-700 hover:bg-neutral-600 text-white py-3 rounded-lg font-medium transition shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+               disabled={!appState.imageUrl}
+             >
+               <Download className="w-4 h-4" />
+               匯出 SVG（裁切外框）
              </button>
 
              <button 
