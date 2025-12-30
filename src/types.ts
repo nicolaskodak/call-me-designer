@@ -35,3 +35,49 @@ export interface Point {
     strokeOpacity: 1.0,
     strokeWidth: 3,
   };
+
+  export type ActiveTab = 'editor' | 'mockup';
+
+  export interface MockupLayer {
+    id: string;
+    name: string;
+    imageUrl: string;
+    svgText: string;
+    width: number;
+    height: number;
+    /** total instances count for this layer (0 => delete) */
+    totalCount: number;
+  }
+
+  export interface MockupInstance {
+    id: string;
+    layerId: string;
+    x: number;
+    y: number;
+    /** rotation applied during layout/rendering. Only 0 or 90 are currently supported. */
+    rotationDeg: 0 | 90;
+  }
+
+  export interface MockupState {
+    boundaryWidth: number;
+    boundaryHeight: number;
+    minGap: number;
+    allowRotate90: boolean;
+    layers: MockupLayer[];
+    instances: MockupInstance[];
+    selectedInstanceId: string | null;
+    notPlacedInstanceIds: string[];
+    lastLayoutMessage: string | null;
+  }
+
+  export const DEFAULT_MOCKUP_STATE: MockupState = {
+    boundaryWidth: 900,
+    boundaryHeight: 600,
+    minGap: 10,
+    allowRotate90: false,
+    layers: [],
+    instances: [],
+    selectedInstanceId: null,
+    notPlacedInstanceIds: [],
+    lastLayoutMessage: null,
+  };

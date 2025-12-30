@@ -1,11 +1,18 @@
 import React from 'react';
 import { Settings2, Upload, Trash2, MousePointer2, Info, Download, RotateCcw, RotateCw, FileText } from 'lucide-react';
-import { AppState } from '../types';
+import { ActiveTab, AppState, MockupState } from '../types';
 
 interface ControlsProps {
+  activeTab: ActiveTab;
+  setActiveTab: React.Dispatch<React.SetStateAction<ActiveTab>>;
   appState: AppState;
   setAppState: React.Dispatch<React.SetStateAction<AppState>>;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onMockupUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  mockupState: MockupState;
+  setMockupState: React.Dispatch<React.SetStateAction<MockupState>>;
+  onSetLayerTotalCount: (layerId: string, totalCount: number) => void;
+  onAutoLayout: () => void;
   onExport: () => void;
   onExportPDF: () => void;
   segmentCount: number;
@@ -16,8 +23,23 @@ interface ControlsProps {
 }
 
 const Controls: React.FC<ControlsProps> = ({ 
-    appState, setAppState, onUpload, onExport, onExportPDF, segmentCount,
-    onUndo, onRedo, canUndo, canRedo 
+    activeTab,
+    setActiveTab,
+    appState,
+    setAppState,
+    onUpload,
+    onMockupUpload,
+    mockupState,
+    setMockupState,
+    onSetLayerTotalCount,
+    onAutoLayout,
+    onExport,
+    onExportPDF,
+    segmentCount,
+    onUndo,
+    onRedo,
+    canUndo,
+    canRedo,
 }) => {
   
   const handleChange = <K extends keyof AppState>(key: K, value: AppState[K]) => {
@@ -34,24 +56,213 @@ const Controls: React.FC<ControlsProps> = ({
           Contour Crafted
         </h1>
         <p className="text-neutral-400 text-xs mt-1">PNG Outline Generator & Editor</p>
+
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={() => setActiveTab('editor')}
+            className={`flex-1 py-2 rounded text-xs transition border ${
+              activeTab === 'editor'
+                ? 'bg-neutral-700 text-white border-neutral-600'
+                : 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700/40'
+            }`}
+          >
+            Editor
+          </button>
+          <button
+            onClick={() => setActiveTab('mockup')}
+            className={`flex-1 py-2 rounded text-xs transition border ${
+              activeTab === 'mockup'
+                ? 'bg-neutral-700 text-white border-neutral-600'
+                : 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700/40'
+            }`}
+          >
+            Mockup
+          </button>
+        </div>
       </div>
 
       {/* Upload */}
       <div className="p-4 border-b border-neutral-700">
-        <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-neutral-600 rounded-lg hover:border-blue-500 hover:bg-neutral-700/50 transition cursor-pointer group">
-          <div className="flex flex-col items-center justify-center pt-2 pb-3">
-            <Upload className="w-8 h-8 mb-2 text-neutral-500 group-hover:text-blue-400" />
-            <p className="text-xs text-neutral-400 group-hover:text-neutral-200">
-              <span className="font-semibold">Click to upload</span> or drag PNG
-            </p>
-          </div>
-          <input type="file" className="hidden" accept="image/png" onChange={onUpload} />
-        </label>
+        {activeTab === 'editor' ? (
+          <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-neutral-600 rounded-lg hover:border-blue-500 hover:bg-neutral-700/50 transition cursor-pointer group">
+            <div className="flex flex-col items-center justify-center pt-2 pb-3">
+              <Upload className="w-8 h-8 mb-2 text-neutral-500 group-hover:text-blue-400" />
+              <p className="text-xs text-neutral-400 group-hover:text-neutral-200">
+                <span className="font-semibold">Click to upload</span> or drag PNG
+              </p>
+            </div>
+            <input type="file" className="hidden" accept="image/png" onChange={onUpload} />
+          </label>
+        ) : (
+          <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-neutral-600 rounded-lg hover:border-blue-500 hover:bg-neutral-700/50 transition cursor-pointer group">
+            <div className="flex flex-col items-center justify-center pt-2 pb-3">
+              <Upload className="w-8 h-8 mb-2 text-neutral-500 group-hover:text-blue-400" />
+              <p className="text-xs text-neutral-400 group-hover:text-neutral-200 text-center">
+                <span className="font-semibold">Click to upload</span> image + SVG (multiple)
+              </p>
+              <p className="text-[10px] text-neutral-500 mt-1 text-center">
+                Pairing: same filename stem (cat.png + cat.svg)
+              </p>
+            </div>
+            <input
+              type="file"
+              className="hidden"
+              multiple
+              accept="image/*,image/svg+xml,.svg"
+              onChange={onMockupUpload}
+            />
+          </label>
+        )}
       </div>
 
       {/* Controls */}
       <div className="p-4 space-y-6 flex-1">
-        
+        {activeTab === 'mockup' ? (
+          <>
+            <div className="space-y-4">
+              <h2 className="text-neutral-200 font-semibold text-xs uppercase tracking-wider">Mockup Boundary</h2>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-neutral-400 text-xs">Width (px)</label>
+                  <input
+                    type="number"
+                    min={100}
+                    value={mockupState.boundaryWidth}
+                    onChange={(e) =>
+                      setMockupState(prev => ({
+                        ...prev,
+                        boundaryWidth: Number(e.target.value) || 0,
+                      }))
+                    }
+                    className="w-full px-2 py-1 rounded bg-neutral-700 border border-neutral-600 text-white text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-neutral-400 text-xs">Height (px)</label>
+                  <input
+                    type="number"
+                    min={100}
+                    value={mockupState.boundaryHeight}
+                    onChange={(e) =>
+                      setMockupState(prev => ({
+                        ...prev,
+                        boundaryHeight: Number(e.target.value) || 0,
+                      }))
+                    }
+                    className="w-full px-2 py-1 rounded bg-neutral-700 border border-neutral-600 text-white text-xs"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between p-2 bg-neutral-700/30 rounded border border-neutral-700">
+                <span className="text-neutral-400 text-xs">Items</span>
+                <span className="text-white font-mono text-xs">{mockupState.instances.length}</span>
+              </div>
+            </div>
+
+            <div className="h-px bg-neutral-700" />
+
+            <div className="space-y-3">
+              <h2 className="text-neutral-200 font-semibold text-xs uppercase tracking-wider">Layout</h2>
+
+              <div className="space-y-1">
+                <label className="text-neutral-400 text-xs">Min Gap (px)</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={mockupState.minGap}
+                  onChange={(e) =>
+                    setMockupState(prev => ({
+                      ...prev,
+                      minGap: Math.max(0, Number(e.target.value) || 0),
+                    }))
+                  }
+                  className="w-full px-2 py-1 rounded bg-neutral-700 border border-neutral-600 text-white text-xs"
+                />
+              </div>
+
+              <label className="flex items-center justify-between gap-3 p-2 bg-neutral-700/30 rounded border border-neutral-700">
+                <span className="text-neutral-400 text-xs">允許 90° 旋轉</span>
+                <input
+                  type="checkbox"
+                  checked={mockupState.allowRotate90}
+                  onChange={(e) =>
+                    setMockupState(prev => ({
+                      ...prev,
+                      allowRotate90: e.target.checked,
+                      instances: e.target.checked
+                        ? prev.instances
+                        : prev.instances.map(i => ({ ...i, rotationDeg: 0 })),
+                      notPlacedInstanceIds: [],
+                      lastLayoutMessage: null,
+                    }))
+                  }
+                  className="h-4 w-4"
+                />
+              </label>
+
+              <button
+                onClick={onAutoLayout}
+                disabled={mockupState.instances.length === 0}
+                className="w-full flex items-center justify-center gap-2 bg-neutral-700 hover:bg-neutral-600 text-white py-2 rounded text-xs transition disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                排圖
+              </button>
+
+              {mockupState.lastLayoutMessage ? (
+                <div className="p-2 rounded bg-neutral-900 border border-neutral-700 text-[10px] text-neutral-300">
+                  {mockupState.lastLayoutMessage}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="h-px bg-neutral-700" />
+
+            <div className="space-y-3">
+              <h2 className="text-neutral-200 font-semibold text-xs uppercase tracking-wider">Layers</h2>
+
+              {mockupState.layers.length === 0 ? (
+                <div className="text-[10px] text-neutral-500">No layers yet. Upload image + SVG pairs.</div>
+              ) : (
+                <div className="space-y-2">
+                  {mockupState.layers.map(layer => (
+                    <div key={layer.id} className="flex items-center gap-2 p-2 rounded bg-neutral-700/20 border border-neutral-700">
+                      <img
+                        src={layer.imageUrl}
+                        alt={layer.name}
+                        className="w-8 h-8 rounded object-contain bg-neutral-900"
+                        draggable={false}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-neutral-200 text-xs truncate">{layer.name}</div>
+                        <div className="text-[10px] text-neutral-500">
+                          {layer.width}×{layer.height}
+                        </div>
+                      </div>
+                      <div className="px-2 py-1 rounded bg-neutral-800 border border-neutral-700 text-[10px] text-neutral-300">
+                        SVG
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-[10px] text-neutral-400">總數</div>
+                        <input
+                          type="number"
+                          min={0}
+                          value={layer.totalCount}
+                          onChange={(e) => onSetLayerTotalCount(layer.id, Number(e.target.value) || 0)}
+                          className="w-16 px-2 py-1 rounded bg-neutral-800 border border-neutral-600 text-white text-xs"
+                          title="總數為 1 代表只有 1 個；設為 0 代表刪除該圖層"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+
         {/* Processing Group */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
@@ -233,22 +444,34 @@ const Controls: React.FC<ControlsProps> = ({
              </button>
         </div>
 
+          </>
+        )}
+
       </div>
 
       {/* Footer Instructions */}
       <div className="p-4 bg-neutral-900 border-t border-neutral-700 text-[10px] text-neutral-500 space-y-2">
-        <div className="flex items-start gap-2">
+        {activeTab === 'editor' ? (
+          <>
+            <div className="flex items-start gap-2">
+                <MousePointer2 className="w-3 h-3 mt-0.5" />
+                <span>Drag nodes to adjust shape.</span>
+            </div>
+            <div className="flex items-start gap-2">
+                <Trash2 className="w-3 h-3 mt-0.5" />
+                <span>Double-click a node to delete it.</span>
+            </div>
+            <div className="flex items-start gap-2">
+                <div className="w-3 h-3 rounded-full border border-neutral-600 mt-0.5 flex items-center justify-center text-[8px]">+</div>
+                <span>Click on line to add a node.</span>
+            </div>
+          </>
+        ) : (
+          <div className="flex items-start gap-2">
             <MousePointer2 className="w-3 h-3 mt-0.5" />
-            <span>Drag nodes to adjust shape.</span>
-        </div>
-        <div className="flex items-start gap-2">
-            <Trash2 className="w-3 h-3 mt-0.5" />
-            <span>Double-click a node to delete it.</span>
-        </div>
-        <div className="flex items-start gap-2">
-            <div className="w-3 h-3 rounded-full border border-neutral-600 mt-0.5 flex items-center justify-center text-[8px]">+</div>
-            <span>Click on line to add a node.</span>
-        </div>
+            <span>Drag a pair to reposition it.</span>
+          </div>
+        )}
       </div>
 
     </div>
