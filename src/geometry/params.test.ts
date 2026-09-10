@@ -31,18 +31,19 @@ describe('params', () => {
   });
 
   it('converts cutline mm params to px (1 mm = 1 px at 25.4 dpi)', () => {
-    const result = cutlineParamsToPx(DEFAULT_CUTLINE_PARAMS, 25.4);
-    expect(result.mode).toBe('precise');
-    expect(result.alphaThreshold).toBe(16);
-    expect(result.offsetPx).toBeCloseTo(2, 9);
-    expect(result.legacyBlurPx).toBe(15);
-    expect(result.legacyThreshold).toBe(10);
-    expect(result.minIslandAreaPx2).toBeCloseTo(0.5, 9);
-    expect(result.singleConnected).toBe(true);
-    expect(result.bridgeMode).toBe('auto');
-    expect(result.bridgeRadiusPx).toBeCloseTo(3, 9);
-    expect(result.bridgeMaxPx).toBeCloseTo(10, 9);
-    expect(result.bridgePrecisionPx).toBeCloseTo(0.1, 9);
+    expect(cutlineParamsToPx(DEFAULT_CUTLINE_PARAMS, 25.4)).toEqual({
+      mode: 'precise',
+      alphaThreshold: 16,
+      offsetPx: expect.closeTo(2, 9),
+      legacyBlurPx: 15,
+      legacyThreshold: 10,
+      minIslandAreaPx2: 0.5,
+      singleConnected: true,
+      bridgeMode: 'auto',
+      bridgeRadiusPx: 3,
+      bridgeMaxPx: 10,
+      bridgePrecisionPx: expect.closeTo(0.1, 9),
+    });
   });
 
   it('scales with dpi', () => {
@@ -50,10 +51,11 @@ describe('params', () => {
   });
 
   it('converts underprint mm params to px', () => {
-    const result = underprintParamsToPx(DEFAULT_UNDERPRINT_PARAMS, 25.4);
-    expect(result.alphaThreshold).toBe(128);
-    expect(result.insetPx).toBeCloseTo(0.2, 9);
-    expect(result.minIslandAreaPx2).toBeCloseTo(0.2, 9);
-    expect(result.fillHoles).toBe(false);
+    expect(underprintParamsToPx(DEFAULT_UNDERPRINT_PARAMS, 25.4)).toEqual({
+      alphaThreshold: 128,
+      insetPx: expect.closeTo(0.2, 9),
+      minIslandAreaPx2: expect.closeTo(0.2, 9),
+      fillHoles: false,
+    });
   });
 });
