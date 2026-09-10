@@ -5,10 +5,15 @@ import type { Settings } from '../settings/schema';
 export interface BackgroundRemovalApi {
   busy: boolean;
   error: string | null;
-  remove: (input: Blob) => Promise<void>;
+  remove: (input: Blob, sourceId: string) => Promise<void>;
+  /** 中止進行中的去背請求（例如換了圖） */
+  cancel: () => void;
 }
 
-export function useBackgroundRemoval(settings: Settings, replaceCurrent: (blob: Blob) => Promise<void>): BackgroundRemovalApi {
+export function useBackgroundRemoval(
+  settings: Settings,
+  replaceCurrent: (blob: Blob, expectedSourceId: string) => Promise<void>,
+): BackgroundRemovalApi {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -16,7 +21,7 @@ export function useBackgroundRemoval(settings: Settings, replaceCurrent: (blob: 
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const remove = useCallback(async (input: Blob) => {
+  const remove = useCallback(async (input: Blob, sourceId: string) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -24,7 +29,7 @@ export function useBackgroundRemoval(settings: Settings, replaceCurrent: (blob: 
     setError(null);
     try {
       const result = await createRemoveBgClient({ apiKey, size }).removeBackground(input, { signal: controller.signal });
-      await replaceCurrent(result);
+      await replaceCurrent(result, sourceId);
     } catch (err) {
       if (controller.signal.aborted) return;
       if (!(err instanceof RemoveBgError)) console.error('去背失敗', err);
@@ -37,5 +42,11 @@ export function useBackgroundRemoval(settings: Settings, replaceCurrent: (blob: 
     }
   }, [apiKey, size, replaceCurrent]);
 
-  return { busy, error, remove };
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setBusy(false);
+  }, []);
+
+  return { busy, error, remove, cancel };
 }

@@ -20,6 +20,7 @@ export default defineConfig({
         'src/editor/guardMessage.ts',
         'src/utils/**/*.ts',
         'src/source/sourceModel.ts',
+        'src/hooks/useSourceImage.ts',
       ],
       exclude: [
         '**/*.test.ts',

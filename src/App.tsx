@@ -115,7 +115,7 @@ const App: React.FC = () => {
     if (!source) return;
     // 一律從原圖去背，避免對已處理過的結果再處理一次
     const input = source.original?.blob ?? source.current.blob;
-    guardSource(() => void bgRemoval.remove(input));
+    guardSource(() => void bgRemoval.remove(input, source.id));
   };
   const revertOriginal = () => guardSource(() => sourceApi.revertToOriginal());
 
@@ -191,7 +191,11 @@ const App: React.FC = () => {
       source={source}
       loading={sourceApi.loading}
       error={sourceApi.error}
-      onUpload={file => guardSource(() => void sourceApi.upload(file))}
+      onUpload={file => guardSource(() => {
+        // 換圖時中止進行中的去背，避免結果套到新圖上
+        bgRemoval.cancel();
+        void sourceApi.upload(file);
+      })}
       onDpiChange={d => guardSource(() => sourceApi.setDpi(d))}
     >
       <BackgroundRemovalSection

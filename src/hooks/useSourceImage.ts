@@ -15,7 +15,8 @@ export interface SourceImageApi {
   error: string | null;
   upload(file: File): Promise<void>;
   setDpi(dpi: number): void;
-  replaceCurrent(blob: Blob): Promise<void>;
+  /** 只有載入完成時目前的來源仍是 expectedSourceId 才套用；中途換了圖就丟棄 */
+  replaceCurrent(blob: Blob, expectedSourceId: string): Promise<void>;
   revertToOriginal(): void;
 }
 
@@ -31,6 +32,8 @@ export function useSourceImage(defaultDpi: number): SourceImageApi {
   const [error, setError] = useState<string | null>(null);
   const sourceRef = useRef<SourceImage | null>(null);
   sourceRef.current = source;
+  // 每次上傳遞增；載入完成時已經不是最新一次的上傳就丟棄
+  const uploadSeqRef = useRef(0);
 
   // unmount 時釋放所有 URL
   useEffect(() => () => {
@@ -52,17 +55,27 @@ export function useSourceImage(defaultDpi: number): SourceImageApi {
   }, []);
 
   const upload = useCallback((file: File) => run(async () => {
+    uploadSeqRef.current += 1;
+    const seq = uploadSeqRef.current;
     const version = await loadImageVersion(file, defaultDpi);
+    if (seq !== uploadSeqRef.current) {
+      revoke(version);
+      return;
+    }
     const previous = sourceRef.current;
     setSource({ id: newId(), name: fileStem(file.name), current: version, original: null });
     revoke(previous?.current);
     revoke(previous?.original);
   }), [defaultDpi, run]);
 
-  const replaceCurrent = useCallback((blob: Blob) => run(async () => {
-    const previous = sourceRef.current;
-    if (!previous) return;
+  const replaceCurrent = useCallback((blob: Blob, expectedSourceId: string) => run(async () => {
     const loaded = await loadImageVersion(blob, defaultDpi);
+    const previous = sourceRef.current;
+    // 等待期間換了圖：結果屬於舊的來源，不能套到新圖上
+    if (!previous || previous.id !== expectedSourceId) {
+      revoke(loaded);
+      return;
+    }
     const prev = previous.current;
     const version: ImageVersion = {
       ...loaded,
