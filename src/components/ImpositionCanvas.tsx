@@ -1,11 +1,14 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { layerBoxMm, moveInstance, selectInstance } from '../imposition/state';
 import type { ImpositionInstance, ImpositionLayer, ImpositionShow, ImpositionState } from '../imposition/types';
+import { computeFitZoom } from '../imposition/zoom';
 import { CSS_PX_PER_MM, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
 
 export interface ImpositionCanvasHandle {
   exportPDF(): Promise<void>;
+  /** 讓整個版面剛好放進目前的視窗；還沒掛上 DOM 時回傳 null */
+  fitZoom(): number | null;
 }
 
 interface Colors {
@@ -24,6 +27,8 @@ type PanState = { x: number; y: number; left: number; top: number } | null;
 
 const PDF_DPI = 300;
 const MAX_CANVAS_PX = 4000;
+/** 對應版面外層的 p-6 */
+const VIEWPORT_PADDING_PX = 24;
 
 /** 在 active 期間監聽整個視窗的滑鼠移動與放開 */
 function useWindowMouse(active: boolean, onMove: (e: MouseEvent) => void, onUp: () => void): void {
@@ -162,6 +167,11 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   useImperativeHandle(ref, () => ({
     exportPDF: async () => {
       if (boundaryRef.current) await renderPdf(boundaryRef.current, state.boundaryWidthMm, state.boundaryHeightMm);
+    },
+    fitZoom: () => {
+      const viewport = viewportRef.current;
+      if (!viewport) return null;
+      return computeFitZoom(viewport.clientWidth, viewport.clientHeight, state.boundaryWidthMm, state.boundaryHeightMm, VIEWPORT_PADDING_PX);
     },
   }), [state.boundaryWidthMm, state.boundaryHeightMm]);
 

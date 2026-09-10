@@ -272,6 +272,10 @@ const App: React.FC = () => {
             onUpload={uploadImposition}
             onSetLayerTotalCount={imposition.setLayerTotalCount}
             onAutoLayout={imposition.autoLayout}
+            onFitZoom={() => {
+              const z = impositionRef.current?.fitZoom();
+              if (z) imposition.update(s => ({ ...s, zoom: z }));
+            }}
             onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers.svg')}
             onExportCut={() => exportImposition(['cut'], 'imposition-cut.svg')}
             onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint.svg')}

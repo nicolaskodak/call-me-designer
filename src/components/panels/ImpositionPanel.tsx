@@ -11,6 +11,7 @@ interface ImpositionPanelProps {
   onUpload: (files: File[]) => void;
   onSetLayerTotalCount: (layerId: string, total: number) => void;
   onAutoLayout: () => void;
+  onFitZoom: () => void;
   onExportLayers: () => void;
   onExportCut: () => void;
   onExportUnderprint: () => void;
@@ -22,6 +23,14 @@ const SHOW_LABELS: readonly [keyof ImpositionShow, string][] = [
   ['underprint', '顯示白墨'],
   ['cut', '顯示刀模'],
 ];
+
+/** 固定的縮放選項；目前縮放來自「符合視窗」而不在選項裡時，多加一個選項讓選單能顯示它 */
+const zoomOptionsFor = (zoom: number): { value: string; label: string }[] => {
+  const options = ZOOM_OPTIONS.map(z => ({ value: String(z), label: `${z * 100}%` }));
+  if (ZOOM_OPTIONS.includes(zoom)) return options;
+  const fit = { value: String(zoom), label: `${Math.round(zoom * 100)}%（符合視窗）` };
+  return [...options, fit].sort((a, b) => Number(a.value) - Number(b.value));
+};
 
 function MmInput({ label, value, min, onChange }: { label: string; value: number; min: number; onChange: (v: number) => void }) {
   return (
@@ -96,7 +105,7 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   const { state, update } = props;
   const placedCount = state.instances.length - state.notPlacedInstanceIds.length;
   const hasUnderprint = state.layers.some(l => l.underprint);
-  const zoomOptions = ZOOM_OPTIONS.map(z => ({ value: String(z), label: `${z * 100}%` }));
+  const zoomOptions = zoomOptionsFor(state.zoom);
 
   return (
     <>
@@ -109,6 +118,7 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
         <MmInput label="最小間距（mm）" value={state.minGapMm} min={0} onChange={v => update(s => ({ ...s, minGapMm: v }))} />
         <ToggleField label="允許 90° 旋轉" checked={state.allowRotate90} onChange={v => update(s => setAllowRotate(s, v))} />
         <SelectField label="縮放" value={String(state.zoom)} options={zoomOptions} onChange={v => update(s => ({ ...s, zoom: Number(v) }))} />
+        <ActionButton onClick={props.onFitZoom} testId="imposition-fit">符合視窗</ActionButton>
       </Section>
       <Section title="顯示">
         {SHOW_LABELS.map(([key, label]) => (
