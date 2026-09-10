@@ -3,6 +3,7 @@ import paper from 'paper';
 import { jsPDF } from 'jspdf';
 import { AppState } from '../types';
 import { generateOutlineCoordinates, loadImage } from '../utils/imageProcessing';
+import { downloadText } from '../utils/download';
 
 interface EditorCanvasProps {
   appState: AppState;
@@ -124,14 +125,7 @@ const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(({ appSta
 
       if (raster) raster.visible = originalVisibility;
 
-      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'contour-crafted-outline-aligned.svg';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      downloadText(svgString, 'contour-crafted-outline-aligned.svg', 'image/svg+xml;charset=utf-8');
     },
 
     exportSVGTrimmed: () => {
@@ -163,14 +157,7 @@ const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(({ appSta
 
       if (raster) raster.visible = originalVisibility;
 
-      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'contour-crafted-outline-trimmed.svg';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      downloadText(svgString, 'contour-crafted-outline-trimmed.svg', 'image/svg+xml;charset=utf-8');
     },
 
     exportSVG: () => {
@@ -189,14 +176,7 @@ const EditorCanvas = forwardRef<EditorCanvasHandle, EditorCanvasProps>(({ appSta
 
       if (raster) raster.visible = originalVisibility;
 
-      const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = 'contour-crafted-outline.svg';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      downloadText(svgString, 'contour-crafted-outline.svg', 'image/svg+xml;charset=utf-8');
     },
     exportPDF: () => {
       if (!scopeRef.current || !appState.imageWidth || !appState.imageHeight) return;
