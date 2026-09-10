@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@types/d3-contour": "^3.0.6",
@@ -31,6 +32,7 @@
     "zod": "4.6.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
     "@vitest/coverage-v8": "3.2.7",
