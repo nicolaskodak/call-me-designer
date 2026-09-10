@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { createGeometryClient } from './geometry/client';
+void createGeometryClient;
 import EditorCanvas, { EditorCanvasHandle } from './components/EditorCanvas';
 import Controls from './components/Controls';
 import ImpositionCanvas, { ImpositionCanvasHandle } from './components/ImpositionCanvas';
