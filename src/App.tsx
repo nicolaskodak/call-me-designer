@@ -1,34 +1,42 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { GeometryView } from './components/GeometryView';
 import ImpositionCanvas, { type ImpositionCanvasHandle } from './components/ImpositionCanvas';
 import { CutlinePanel } from './components/panels/CutlinePanel';
 import { ImpositionPanel } from './components/panels/ImpositionPanel';
 import { SourcePanel } from './components/panels/SourcePanel';
+import { UnderprintPanel } from './components/panels/UnderprintPanel';
 import { Sidebar, type TabDef } from './components/Sidebar';
 import { useRegenerateGuard } from './editor/useRegenerateGuard';
 import { exportCutPdf } from './export/cutPdf';
 import { buildAlignedSvg, buildTrimmedCutSvg } from './export/svg';
-import { cutlineParamsToPx, DEFAULT_CUTLINE_PARAMS } from './geometry/params';
-import type { CutlineParams } from './geometry/types';
-import { useEditorSlot } from './hooks/useEditorSlot';
+import {
+  cutlineParamsToPx,
+  DEFAULT_CUTLINE_PARAMS,
+  DEFAULT_UNDERPRINT_PARAMS,
+  underprintParamsToPx,
+} from './geometry/params';
+import type { CutlineParams, UnderprintParams } from './geometry/types';
+import { useEditorSlot, type EditorSlot } from './hooks/useEditorSlot';
 import { useGeometry } from './hooks/useGeometry';
 import { useGeometryClient } from './hooks/useGeometryClient';
 import { useImposition } from './hooks/useImposition';
 import { useSourceImage } from './hooks/useSourceImage';
 import { useWorkerImage } from './hooks/useWorkerImage';
-import { DEFAULT_CUT_STYLE, type ActiveTab, type DisplayStyle } from './types';
+import { DEFAULT_CUT_STYLE, DEFAULT_UNDERPRINT_STYLE, type ActiveTab, type DisplayStyle } from './types';
 import { DEFAULT_DPI } from './units';
 import { downloadText } from './utils/download';
 
 const TABS: readonly TabDef[] = [
   { id: 'editor', label: 'Editor' },
+  { id: 'underprint', label: 'Underprint' },
   { id: 'imposition', label: 'Imposition' },
 ];
 
 const SVG_MIME = 'image/svg+xml;charset=utf-8';
 /** 第 6 階段改為讀取設定頁的顏色 */
 const EXPORT_CUT_COLOR = '#FF0000';
+const EXPORT_UNDERPRINT_COLOR = '#FFFFFF';
 
 const confirmExport = (warnings: readonly string[]): boolean =>
   warnings.length === 0 || window.confirm(`${warnings.join('\n')}\n\n確定要匯出嗎？`);
@@ -41,29 +49,58 @@ const EDITOR_TIPS = (
   </>
 );
 
+/** 回傳目前有手動編輯、會被覆蓋的分頁名稱 */
+const dirtyPages = (entries: readonly [string, EditorSlot][]): string[] =>
+  entries.filter(([, slot]) => slot.dirty).map(([name]) => name);
+
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('editor');
   const sourceApi = useSourceImage(DEFAULT_DPI);
   const { source } = sourceApi;
   const client = useGeometryClient();
   const imageId = useWorkerImage(client, source?.current ?? null);
+  const dpi = source?.current.dpi ?? null;
 
+  // 刀模
   const [cutParams, setCutParams] = useState<CutlineParams>(DEFAULT_CUTLINE_PARAMS);
   const [cutStyle, setCutStyle] = useState<DisplayStyle>(DEFAULT_CUT_STYLE);
-  const dpi = source?.current.dpi ?? null;
   const cutParamsPx = useMemo(() => (dpi ? cutlineParamsToPx(cutParams, dpi) : null), [cutParams, dpi]);
   const cutGeometry = useGeometry(client, 'cutline', imageId, cutParamsPx);
   const cut = useEditorSlot();
+
+  // 白墨：這張圖開過白墨頁之後才計算
+  const [underParams, setUnderParams] = useState<UnderprintParams>(DEFAULT_UNDERPRINT_PARAMS);
+  const [underStyle, setUnderStyle] = useState<DisplayStyle>(DEFAULT_UNDERPRINT_STYLE);
+  const [showCutReference, setShowCutReference] = useState(true);
+  const [underprintVisitedFor, setUnderprintVisitedFor] = useState<string | null>(null);
+  const sourceId = source?.id ?? null;
+  useEffect(() => {
+    if (activeTab === 'underprint' && sourceId) setUnderprintVisitedFor(sourceId);
+  }, [activeTab, sourceId]);
+  const underprintEnabled = sourceId !== null && underprintVisitedFor === sourceId;
+  const underParamsPx = useMemo(
+    () => (dpi && underprintEnabled ? underprintParamsToPx(underParams, dpi) : null),
+    [underParams, dpi, underprintEnabled],
+  );
+  const underGeometry = useGeometry(client, 'underprint', imageId, underParamsPx);
+  const under = useEditorSlot();
 
   const imposition = useImposition(activeTab === 'imposition');
   const impositionRef = useRef<ImpositionCanvasHandle>(null);
   const { guard, dialog } = useRegenerateGuard();
 
-  // 會重新產生刀模的操作都經過這裡；確認後立刻清掉 dirty，避免拖拉桿時重複詢問
-  const guardCut = useCallback(
-    (action: () => void) => guard(cut.dirty ? ['Editor'] : [], () => { cut.clearDirty(); action(); }),
-    [guard, cut],
+  // 確認後立刻清掉 dirty，避免拖拉桿時重複詢問
+  const guardSlots = useCallback(
+    (entries: readonly [string, EditorSlot][], action: () => void) =>
+      guard(dirtyPages(entries), () => {
+        entries.forEach(([, slot]) => slot.clearDirty());
+        action();
+      }),
+    [guard],
   );
+  const guardCut = (action: () => void) => guardSlots([['Editor', cut]], action);
+  const guardUnder = (action: () => void) => guardSlots([['Underprint', under]], action);
+  const guardSource = (action: () => void) => guardSlots([['Editor', cut], ['Underprint', under]], action);
 
   const exportCut = (kind: 'aligned' | 'trimmed') => {
     const editor = cut.ref.current;
@@ -91,19 +128,32 @@ const App: React.FC = () => {
     });
   };
 
+  const exportUnderprint = () => {
+    const editor = under.ref.current;
+    if (!source || !editor) return;
+    const { widthPx, heightPx, dpi: d } = source.current;
+    const svg = buildAlignedSvg({ kind: 'underprint', paths: editor.getPathData(), widthPx, heightPx, dpi: d, color: EXPORT_UNDERPRINT_COLOR });
+    downloadText(svg, `${source.name}-underprint.svg`, SVG_MIME);
+  };
+
   const sourcePanel = (
     <SourcePanel
       source={source}
       loading={sourceApi.loading}
       error={sourceApi.error}
-      onUpload={file => guardCut(() => void sourceApi.upload(file))}
-      onDpiChange={d => guardCut(() => sourceApi.setDpi(d))}
+      onUpload={file => guardSource(() => void sourceApi.upload(file))}
+      onDpiChange={d => guardSource(() => sourceApi.setDpi(d))}
     />
   );
 
   return (
     <div className="flex h-screen w-screen bg-black overflow-hidden font-sans">
-      <Sidebar tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} footer={activeTab === 'editor' ? EDITOR_TIPS : null}>
+      <Sidebar
+        tabs={TABS}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        footer={activeTab === 'editor' || activeTab === 'underprint' ? EDITOR_TIPS : null}
+      >
         {activeTab === 'editor' ? (
           <>
             {sourcePanel}
@@ -123,6 +173,28 @@ const App: React.FC = () => {
               onExportAligned={() => exportCut('aligned')}
               onExportTrimmed={() => exportCut('trimmed')}
               onExportPdf={exportPdf}
+            />
+          </>
+        ) : null}
+        {activeTab === 'underprint' ? (
+          <>
+            {sourcePanel}
+            <UnderprintPanel
+              params={underParams}
+              onParamsChange={next => guardUnder(() => setUnderParams(next))}
+              geometry={underGeometry}
+              dpi={dpi}
+              hasSource={Boolean(source)}
+              canUndo={under.canUndo}
+              canRedo={under.canRedo}
+              onUndo={() => under.ref.current?.undo()}
+              onRedo={() => under.ref.current?.redo()}
+              segmentCount={under.segmentCount}
+              style={underStyle}
+              onStyleChange={setUnderStyle}
+              showCutReference={showCutReference}
+              onShowCutReferenceChange={setShowCutReference}
+              onExport={exportUnderprint}
             />
           </>
         ) : null}
@@ -151,6 +223,20 @@ const App: React.FC = () => {
             active={activeTab === 'editor'}
             testId="cut-canvas"
             {...cut.callbacks}
+          />
+        </div>
+        <div className="absolute inset-0" hidden={activeTab !== 'underprint'}>
+          <GeometryView
+            source={source}
+            geometry={underGeometry}
+            editorRef={under.ref}
+            mode="fill"
+            style={underStyle}
+            smoothness={underParams.smoothness}
+            referencePaths={showCutReference ? cut.paths : undefined}
+            active={activeTab === 'underprint'}
+            testId="under-canvas"
+            {...under.callbacks}
           />
         </div>
         <div className="absolute inset-0" hidden={activeTab !== 'imposition'}>
