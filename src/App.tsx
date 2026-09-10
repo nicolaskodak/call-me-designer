@@ -314,9 +314,11 @@ const App: React.FC = () => {
         <div className="absolute inset-0" hidden={activeTab !== 'imposition'}>
           <ImpositionCanvas ref={impositionRef} state={imposition.state} update={imposition.update} colors={exportColors} />
         </div>
-        <div className="absolute inset-0 flex items-center justify-center text-neutral-500 text-sm" hidden={activeTab !== 'settings'}>
-          設定會自動儲存在這個瀏覽器。
-        </div>
+        {activeTab === 'settings' ? (
+          <div className="absolute inset-0 flex items-center justify-center text-neutral-500 text-sm pointer-events-none">
+            設定會自動儲存在這個瀏覽器。
+          </div>
+        ) : null}
         <Toast message={notice} onDone={clearNotice} />
       </main>
 
