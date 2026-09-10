@@ -1,8 +1,14 @@
+/** 一條 SVG 路徑（圖片 px 座標）。白墨的 CompoundPath 會帶 fillRule。 */
+export interface PathData {
+  d: string;
+  fillRule?: 'evenodd';
+}
+
 export interface Point {
     x: number;
     y: number;
   }
-  
+
   export interface AppState {
     imageUrl: string | null;
     imageWidth: number;
