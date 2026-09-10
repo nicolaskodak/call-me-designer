@@ -1,6 +1,6 @@
 import React from 'react';
 import { Settings2, Upload, Trash2, MousePointer2, Info, Download, RotateCcw, RotateCw, FileText } from 'lucide-react';
-import { ActiveTab, AppState, MockupState } from '../types';
+import { ActiveTab, AppState, ImpositionState } from '../types';
 
 interface ControlsProps {
   activeTab: ActiveTab;
@@ -8,12 +8,12 @@ interface ControlsProps {
   appState: AppState;
   setAppState: React.Dispatch<React.SetStateAction<AppState>>;
   onUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onMockupUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  mockupState: MockupState;
-  setMockupState: React.Dispatch<React.SetStateAction<MockupState>>;
+  onImpositionUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  impositionState: ImpositionState;
+  setImpositionState: React.Dispatch<React.SetStateAction<ImpositionState>>;
   onSetLayerTotalCount: (layerId: string, totalCount: number) => void;
   onAutoLayout: () => void;
-  onExportMockupPDF: () => void;
+  onExportImpositionPDF: () => void;
   onExportSvgAligned: () => void;
   onExportSvgTrimmed: () => void;
   onExportPDF: () => void;
@@ -30,12 +30,12 @@ const Controls: React.FC<ControlsProps> = ({
     appState,
     setAppState,
     onUpload,
-    onMockupUpload,
-    mockupState,
-    setMockupState,
+    onImpositionUpload,
+    impositionState,
+    setImpositionState,
     onSetLayerTotalCount,
     onAutoLayout,
-  onExportMockupPDF,
+  onExportImpositionPDF,
     onExportSvgAligned,
     onExportSvgTrimmed,
     onExportPDF,
@@ -73,14 +73,14 @@ const Controls: React.FC<ControlsProps> = ({
             Editor
           </button>
           <button
-            onClick={() => setActiveTab('mockup')}
+            onClick={() => setActiveTab('imposition')}
             className={`flex-1 py-2 rounded text-xs transition border ${
-              activeTab === 'mockup'
+              activeTab === 'imposition'
                 ? 'bg-neutral-700 text-white border-neutral-600'
                 : 'bg-neutral-800 text-neutral-300 border-neutral-700 hover:bg-neutral-700/40'
             }`}
           >
-            Mockup
+            Imposition
           </button>
         </div>
       </div>
@@ -113,7 +113,7 @@ const Controls: React.FC<ControlsProps> = ({
               className="hidden"
               multiple
               accept="image/*,image/svg+xml,.svg"
-              onChange={onMockupUpload}
+              onChange={onImpositionUpload}
             />
           </label>
         )}
@@ -121,10 +121,10 @@ const Controls: React.FC<ControlsProps> = ({
 
       {/* Controls */}
       <div className="p-4 space-y-6 flex-1">
-        {activeTab === 'mockup' ? (
+        {activeTab === 'imposition' ? (
           <>
             <div className="space-y-4">
-              <h2 className="text-neutral-200 font-semibold text-xs uppercase tracking-wider">Mockup Boundary</h2>
+              <h2 className="text-neutral-200 font-semibold text-xs uppercase tracking-wider">Imposition Boundary</h2>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -132,9 +132,9 @@ const Controls: React.FC<ControlsProps> = ({
                   <input
                     type="number"
                     min={100}
-                    value={mockupState.boundaryWidth}
+                    value={impositionState.boundaryWidth}
                     onChange={(e) =>
-                      setMockupState(prev => ({
+                      setImpositionState(prev => ({
                         ...prev,
                         boundaryWidth: Number(e.target.value) || 0,
                       }))
@@ -147,9 +147,9 @@ const Controls: React.FC<ControlsProps> = ({
                   <input
                     type="number"
                     min={100}
-                    value={mockupState.boundaryHeight}
+                    value={impositionState.boundaryHeight}
                     onChange={(e) =>
-                      setMockupState(prev => ({
+                      setImpositionState(prev => ({
                         ...prev,
                         boundaryHeight: Number(e.target.value) || 0,
                       }))
@@ -161,7 +161,7 @@ const Controls: React.FC<ControlsProps> = ({
 
               <div className="flex items-center justify-between p-2 bg-neutral-700/30 rounded border border-neutral-700">
                 <span className="text-neutral-400 text-xs">Items</span>
-                <span className="text-white font-mono text-xs">{mockupState.instances.length}</span>
+                <span className="text-white font-mono text-xs">{impositionState.instances.length}</span>
               </div>
             </div>
 
@@ -175,9 +175,9 @@ const Controls: React.FC<ControlsProps> = ({
                 <input
                   type="number"
                   min={0}
-                  value={mockupState.minGap}
+                  value={impositionState.minGap}
                   onChange={(e) =>
-                    setMockupState(prev => ({
+                    setImpositionState(prev => ({
                       ...prev,
                       minGap: Math.max(0, Number(e.target.value) || 0),
                     }))
@@ -190,9 +190,9 @@ const Controls: React.FC<ControlsProps> = ({
                 <span className="text-neutral-400 text-xs">允許 90° 旋轉</span>
                 <input
                   type="checkbox"
-                  checked={mockupState.allowRotate90}
+                  checked={impositionState.allowRotate90}
                   onChange={(e) =>
-                    setMockupState(prev => ({
+                    setImpositionState(prev => ({
                       ...prev,
                       allowRotate90: e.target.checked,
                       instances: e.target.checked
@@ -208,15 +208,15 @@ const Controls: React.FC<ControlsProps> = ({
 
               <button
                 onClick={onAutoLayout}
-                disabled={mockupState.instances.length === 0}
+                disabled={impositionState.instances.length === 0}
                 className="w-full flex items-center justify-center gap-2 bg-neutral-700 hover:bg-neutral-600 text-white py-2 rounded text-xs transition disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 排圖
               </button>
 
               <button
-                onClick={onExportMockupPDF}
-                disabled={mockupState.instances.length === 0 || mockupState.notPlacedInstanceIds.length === mockupState.instances.length}
+                onClick={onExportImpositionPDF}
+                disabled={impositionState.instances.length === 0 || impositionState.notPlacedInstanceIds.length === impositionState.instances.length}
                 className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded text-xs transition disabled:opacity-30 disabled:cursor-not-allowed"
                 title="只匯出塞得進去的項目（不含淺黃色項目）"
               >
@@ -224,9 +224,9 @@ const Controls: React.FC<ControlsProps> = ({
                 匯出 PDF（排除塞不進）
               </button>
 
-              {mockupState.lastLayoutMessage ? (
+              {impositionState.lastLayoutMessage ? (
                 <div className="p-2 rounded bg-neutral-900 border border-neutral-700 text-[10px] text-neutral-300">
-                  {mockupState.lastLayoutMessage}
+                  {impositionState.lastLayoutMessage}
                 </div>
               ) : null}
             </div>
@@ -236,11 +236,11 @@ const Controls: React.FC<ControlsProps> = ({
             <div className="space-y-3">
               <h2 className="text-neutral-200 font-semibold text-xs uppercase tracking-wider">Layers</h2>
 
-              {mockupState.layers.length === 0 ? (
+              {impositionState.layers.length === 0 ? (
                 <div className="text-[10px] text-neutral-500">No layers yet. Upload image + SVG pairs.</div>
               ) : (
                 <div className="space-y-2">
-                  {mockupState.layers.map(layer => (
+                  {impositionState.layers.map(layer => (
                     <div key={layer.id} className="flex items-center gap-2 p-2 rounded bg-neutral-700/20 border border-neutral-700">
                       <img
                         src={layer.imageUrl}

@@ -1,12 +1,12 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { MockupState } from '../types';
+import { ImpositionState } from '../types';
 
-interface MockupCanvasProps {
-  mockupState: MockupState;
-  setMockupState: React.Dispatch<React.SetStateAction<MockupState>>;
+interface ImpositionCanvasProps {
+  impositionState: ImpositionState;
+  setImpositionState: React.Dispatch<React.SetStateAction<ImpositionState>>;
 }
 
-export type MockupCanvasHandle = {
+export type ImpositionCanvasHandle = {
   exportPDF: () => Promise<void>;
 };
 
@@ -23,16 +23,16 @@ type PanState = {
   scrollStartTop: number;
 } | null;
 
-const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockupState, setMockupState }, ref) => {
+const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProps>(({ impositionState, setImpositionState }, ref) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const boundaryRef = useRef<HTMLDivElement>(null);
   const [dragState, setDragState] = useState<DragState>(null);
   const [panState, setPanState] = useState<PanState>(null);
 
-  const layerById = useRef<Map<string, MockupState['layers'][number]>>(new Map());
+  const layerById = useRef<Map<string, ImpositionState['layers'][number]>>(new Map());
   useEffect(() => {
-    layerById.current = new Map(mockupState.layers.map(l => [l.id, l]));
-  }, [mockupState.layers]);
+    layerById.current = new Map(impositionState.layers.map(l => [l.id, l]));
+  }, [impositionState.layers]);
 
   useEffect(() => {
     if (!dragState) return;
@@ -45,7 +45,7 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
       const x = e.clientX - rect.left - dragState.pointerOffsetX;
       const y = e.clientY - rect.top - dragState.pointerOffsetY;
 
-      setMockupState(prev => ({
+      setImpositionState(prev => ({
         ...prev,
         instances: prev.instances.map(item => (item.id === dragState.id ? { ...item, x, y } : item)),
       }));
@@ -62,7 +62,7 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-  }, [dragState, setMockupState]);
+  }, [dragState, setImpositionState]);
 
   useEffect(() => {
     if (!panState) return;
@@ -96,8 +96,8 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
       const boundaryEl = boundaryRef.current;
       if (!boundaryEl) return;
 
-      const w = Math.max(1, Math.floor(mockupState.boundaryWidth));
-      const h = Math.max(1, Math.floor(mockupState.boundaryHeight));
+      const w = Math.max(1, Math.floor(impositionState.boundaryWidth));
+      const h = Math.max(1, Math.floor(impositionState.boundaryHeight));
 
       const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
         import('html2canvas'),
@@ -132,12 +132,12 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
 
         const dataUrl = canvas.toDataURL('image/png');
         doc.addImage(dataUrl, 'PNG', 0, 0, w, h);
-        doc.save('mockup-layout.pdf');
+        doc.save('imposition-layout.pdf');
       } finally {
         boundaryEl.style.backgroundColor = prevBg;
       }
     },
-  }), [mockupState.boundaryWidth, mockupState.boundaryHeight]);
+  }), [impositionState.boundaryWidth, impositionState.boundaryHeight]);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>, id: string) => {
     const boundaryEl = boundaryRef.current;
@@ -147,13 +147,13 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
     const pointerX = e.clientX - rect.left;
     const pointerY = e.clientY - rect.top;
 
-    const instance = mockupState.instances.find(i => i.id === id);
+    const instance = impositionState.instances.find(i => i.id === id);
     if (!instance) return;
 
     e.preventDefault();
     e.stopPropagation();
 
-    setMockupState(prev => ({
+    setImpositionState(prev => ({
       ...prev,
       selectedInstanceId: id,
     }));
@@ -170,7 +170,7 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
     if (!viewportEl) return;
     if (e.button !== 0) return;
 
-    setMockupState(prev => ({
+    setImpositionState(prev => ({
       ...prev,
       selectedInstanceId: null,
     }));
@@ -194,17 +194,17 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
         <div
           ref={boundaryRef}
           className="relative border-2 border-dashed border-neutral-700 rounded-lg overflow-hidden bg-neutral-900/20"
-          style={{ width: mockupState.boundaryWidth, height: mockupState.boundaryHeight }}
+          style={{ width: impositionState.boundaryWidth, height: impositionState.boundaryHeight }}
           onMouseDown={handleBoundaryMouseDown}
         >
-        {mockupState.instances.length === 0 ? (
+        {impositionState.instances.length === 0 ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-500 pointer-events-none">
-            <p className="text-lg font-medium">No Mockup Items</p>
-            <p className="text-sm opacity-60">Upload image + SVG pairs to compose a mockup.</p>
+            <p className="text-lg font-medium">No Imposition Items</p>
+            <p className="text-sm opacity-60">Upload image + SVG pairs to compose an imposition.</p>
           </div>
         ) : null}
 
-        {mockupState.instances.map(instance => {
+        {impositionState.instances.map(instance => {
           const layer = layerById.current.get(instance.layerId);
           if (!layer) return null;
 
@@ -222,8 +222,8 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
               ? `translate(${layoutY + layoutH}px, ${-layoutX}px) rotate(90deg)`
               : `translate(${-layoutX}px, ${-layoutY}px)`;
 
-          const isSelected = mockupState.selectedInstanceId === instance.id;
-          const isNotPlaced = mockupState.notPlacedInstanceIds.includes(instance.id);
+          const isSelected = impositionState.selectedInstanceId === instance.id;
+          const isNotPlaced = impositionState.notPlacedInstanceIds.includes(instance.id);
 
           return (
           <div
@@ -235,7 +235,7 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
             style={{ left: instance.x, top: instance.y, width: boxW, height: boxH }}
             onMouseDown={(e) => handleMouseDown(e, instance.id)}
             role="button"
-            aria-label={`Mockup item ${layer.name}`}
+            aria-label={`Imposition item ${layer.name}`}
             data-not-placed={isNotPlaced ? 'true' : 'false'}
           >
             {isNotPlaced ? (
@@ -267,4 +267,4 @@ const MockupCanvas = forwardRef<MockupCanvasHandle, MockupCanvasProps>(({ mockup
   );
 });
 
-export default MockupCanvas;
+export default ImpositionCanvas;

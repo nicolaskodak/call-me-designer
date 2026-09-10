@@ -1,21 +1,21 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import EditorCanvas, { EditorCanvasHandle } from './components/EditorCanvas';
 import Controls from './components/Controls';
-import MockupCanvas, { MockupCanvasHandle } from './components/MockupCanvas';
-import { ActiveTab, AppState, DEFAULT_MOCKUP_STATE, DEFAULT_STATE, MockupInstance, MockupLayer, MockupState } from './types';
+import ImpositionCanvas, { ImpositionCanvasHandle } from './components/ImpositionCanvas';
+import { ActiveTab, AppState, DEFAULT_IMPOSITION_STATE, DEFAULT_STATE, ImpositionInstance, ImpositionLayer, ImpositionState } from './types';
 import { loadImage } from './utils/imageProcessing';
 import { packWithinBoundary, type PackPlacement, type PackRect } from './imposition/packing';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('editor');
   const [appState, setAppState] = useState<AppState>(DEFAULT_STATE);
-  const [mockupState, setMockupState] = useState<MockupState>(DEFAULT_MOCKUP_STATE);
+  const [impositionState, setImpositionState] = useState<ImpositionState>(DEFAULT_IMPOSITION_STATE);
   const [segmentCount, setSegmentCount] = useState(0);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   
   const editorRef = useRef<EditorCanvasHandle>(null);
-  const mockupRef = useRef<MockupCanvasHandle>(null);
+  const impositionRef = useRef<ImpositionCanvasHandle>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -106,7 +106,7 @@ const App: React.FC = () => {
   const setLayerTotalCount = (layerId: string, totalCount: number) => {
     const safeTotal = Math.max(0, Math.floor(Number.isFinite(totalCount) ? totalCount : 0));
 
-    setMockupState(prev => {
+    setImpositionState(prev => {
       if (safeTotal === 0) {
         const instanceIds = new Set(prev.instances.filter(i => i.layerId === layerId).map(i => i.id));
         const layers = prev.layers.filter(l => l.id !== layerId);
@@ -131,7 +131,7 @@ const App: React.FC = () => {
       const instancesForLayer = prev.instances.filter(i => i.layerId === layerId);
       const requiredTotal = safeTotal;
 
-      let instances: MockupInstance[] = prev.instances;
+      let instances: ImpositionInstance[] = prev.instances;
       let removedIds: Set<string> | null = null;
 
       if (instancesForLayer.length > requiredTotal) {
@@ -140,7 +140,7 @@ const App: React.FC = () => {
         instances = prev.instances.filter(i => i.layerId !== layerId || keepIds.has(i.id));
       } else if (instancesForLayer.length < requiredTotal) {
         const missingCount = requiredTotal - instancesForLayer.length;
-        const additions: MockupInstance[] = Array.from({ length: missingCount }).map(() => ({
+        const additions: ImpositionInstance[] = Array.from({ length: missingCount }).map(() => ({
           id: newId(),
           layerId,
           x: 0,
@@ -163,7 +163,7 @@ const App: React.FC = () => {
   };
 
   const handleAutoLayout = () => {
-    setMockupState(prev => {
+    setImpositionState(prev => {
       const layers = prev.layers.map(layer => {
         const missingLayout =
           layer.layoutWidth == null ||
@@ -183,7 +183,7 @@ const App: React.FC = () => {
         };
       });
 
-      const layerMap = new Map<string, MockupLayer>(layers.map(l => [l.id, l] as const));
+      const layerMap = new Map<string, ImpositionLayer>(layers.map(l => [l.id, l] as const));
 
       const baseInstances = prev.allowRotate90
         ? prev.instances
@@ -221,7 +221,7 @@ const App: React.FC = () => {
   };
 
   const deleteSelectedInstance = useCallback(() => {
-    setMockupState(prev => {
+    setImpositionState(prev => {
       if (!prev.selectedInstanceId) return prev;
       const target = prev.instances.find(i => i.id === prev.selectedInstanceId);
       if (!target) return { ...prev, selectedInstanceId: null };
@@ -254,7 +254,7 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (activeTab !== 'mockup') return;
+    if (activeTab !== 'imposition') return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -275,7 +275,7 @@ const App: React.FC = () => {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeTab, deleteSelectedInstance]);
 
-  const handleMockupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImpositionUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files: File[] = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
 
@@ -298,8 +298,8 @@ const App: React.FC = () => {
     }
 
     const missing: string[] = [];
-    const layersToAdd: MockupLayer[] = [];
-    const instancesToAdd: MockupInstance[] = [];
+    const layersToAdd: ImpositionLayer[] = [];
+    const instancesToAdd: ImpositionInstance[] = [];
 
     for (const [stem, entry] of groups.entries()) {
       if (!entry.image || !entry.svg) {
@@ -336,13 +336,13 @@ const App: React.FC = () => {
           rotationDeg: 0,
         });
       } catch (err) {
-        console.error('Failed to load mockup pair', stem, err);
+        console.error('Failed to load imposition pair', stem, err);
         missing.push(stem);
       }
     }
 
     if (layersToAdd.length > 0) {
-      setMockupState(prev => ({
+      setImpositionState(prev => ({
         ...prev,
         layers: [...prev.layers, ...layersToAdd],
         instances: [...prev.instances, ...instancesToAdd],
@@ -370,8 +370,8 @@ const App: React.FC = () => {
       }
   };
 
-  const handleExportMockupPDF = () => {
-    mockupRef.current?.exportPDF();
+  const handleExportImpositionPDF = () => {
+    impositionRef.current?.exportPDF();
   };
 
   const handleUndo = () => editorRef.current?.undo();
@@ -390,12 +390,12 @@ const App: React.FC = () => {
         appState={appState} 
         setAppState={setAppState} 
         onUpload={handleUpload}
-        onMockupUpload={handleMockupUpload}
-        mockupState={mockupState}
-        setMockupState={setMockupState}
+        onImpositionUpload={handleImpositionUpload}
+        impositionState={impositionState}
+        setImpositionState={setImpositionState}
         onSetLayerTotalCount={setLayerTotalCount}
         onAutoLayout={handleAutoLayout}
-        onExportMockupPDF={handleExportMockupPDF}
+        onExportImpositionPDF={handleExportImpositionPDF}
         onExportSvgAligned={handleExportSvgAligned}
         onExportSvgTrimmed={handleExportSvgTrimmed}
         onExportPDF={handleExportPDF}
@@ -407,8 +407,8 @@ const App: React.FC = () => {
       />
       
       <main className="flex-1 relative h-full bg-[radial-gradient(#333_1px,transparent_1px)] [background-size:16px_16px] bg-neutral-900">
-        {activeTab === 'mockup' ? (
-          <MockupCanvas ref={mockupRef} mockupState={mockupState} setMockupState={setMockupState} />
+        {activeTab === 'imposition' ? (
+          <ImpositionCanvas ref={impositionRef} impositionState={impositionState} setImpositionState={setImpositionState} />
         ) : !appState.imageUrl ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-500 pointer-events-none">
             <div className="w-24 h-24 mb-4 border-2 border-dashed border-neutral-700 rounded-xl flex items-center justify-center opacity-50">

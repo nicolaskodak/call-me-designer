@@ -36,9 +36,9 @@ export interface Point {
     strokeWidth: 3,
   };
 
-  export type ActiveTab = 'editor' | 'mockup';
+  export type ActiveTab = 'editor' | 'imposition';
 
-  export interface MockupLayer {
+  export interface ImpositionLayer {
     id: string;
     name: string;
     imageUrl: string;
@@ -54,7 +54,7 @@ export interface Point {
     totalCount: number;
   }
 
-  export interface MockupInstance {
+  export interface ImpositionInstance {
     id: string;
     layerId: string;
     x: number;
@@ -63,19 +63,19 @@ export interface Point {
     rotationDeg: 0 | 90;
   }
 
-  export interface MockupState {
+  export interface ImpositionState {
     boundaryWidth: number;
     boundaryHeight: number;
     minGap: number;
     allowRotate90: boolean;
-    layers: MockupLayer[];
-    instances: MockupInstance[];
+    layers: ImpositionLayer[];
+    instances: ImpositionInstance[];
     selectedInstanceId: string | null;
     notPlacedInstanceIds: string[];
     lastLayoutMessage: string | null;
   }
 
-  export const DEFAULT_MOCKUP_STATE: MockupState = {
+  export const DEFAULT_IMPOSITION_STATE: ImpositionState = {
     boundaryWidth: 900,
     boundaryHeight: 600,
     minGap: 10,
