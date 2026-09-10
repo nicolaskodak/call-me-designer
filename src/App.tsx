@@ -4,6 +4,7 @@ import Controls from './components/Controls';
 import MockupCanvas, { MockupCanvasHandle } from './components/MockupCanvas';
 import { ActiveTab, AppState, DEFAULT_MOCKUP_STATE, DEFAULT_STATE, MockupInstance, MockupLayer, MockupState } from './types';
 import { loadImage } from './utils/imageProcessing';
+import { packWithinBoundary, type PackPlacement, type PackRect } from './imposition/packing';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('editor');
@@ -159,101 +160,6 @@ const App: React.FC = () => {
 
       return { ...prev, layers, instances, selectedInstanceId, notPlacedInstanceIds, lastLayoutMessage: null };
     });
-  };
-
-  type PackRect = { id: string; w: number; h: number };
-  type PackPlacement = { id: string; x: number; y: number; rotationDeg: 0 | 90 };
-  type PackResult = { placed: PackPlacement[]; notPlaced: string[] };
-
-  const packWithinBoundary = (
-    rects: PackRect[],
-    boundaryWidth: number,
-    boundaryHeight: number,
-    allowRotate90: boolean
-  ): PackResult => {
-    type FreeRect = { x: number; y: number; w: number; h: number };
-    let free: FreeRect[] = [{ x: 0, y: 0, w: boundaryWidth, h: boundaryHeight }];
-
-    const placed: PackPlacement[] = [];
-    const notPlaced: string[] = [];
-
-    const fits = (r: FreeRect, w: number, h: number) => w <= r.w && h <= r.h;
-    const area = (r: { w: number; h: number }) => r.w * r.h;
-
-    const pruneContained = (rects: FreeRect[]) => {
-      return rects.filter((a, idx) => {
-        for (let j = 0; j < rects.length; j++) {
-          if (j === idx) continue;
-          const b = rects[j];
-          const contained =
-            a.x >= b.x &&
-            a.y >= b.y &&
-            a.x + a.w <= b.x + b.w &&
-            a.y + a.h <= b.y + b.h;
-          if (contained) return false;
-        }
-        return a.w > 0 && a.h > 0;
-      });
-    };
-
-    const splitFreeRect = (r: FreeRect, w: number, h: number) => {
-      // Place at (r.x, r.y). Split into right and bottom.
-      const right: FreeRect = { x: r.x + w, y: r.y, w: r.w - w, h };
-      const bottom: FreeRect = { x: r.x, y: r.y + h, w: r.w, h: r.h - h };
-      const bottomRight: FreeRect = { x: r.x + w, y: r.y + h, w: r.w - w, h: r.h - h };
-
-      // Keep a simple guillotine split plus leftover area.
-      return pruneContained([right, bottom, bottomRight].filter(fr => fr.w > 0 && fr.h > 0));
-    };
-
-    const sorted = [...rects].sort((a, b) => area(b) - area(a));
-
-    for (const rect of sorted) {
-      const orientations: Array<{ w: number; h: number; rotationDeg: 0 | 90 }> = [
-        { w: rect.w, h: rect.h, rotationDeg: 0 },
-      ];
-      if (allowRotate90 && rect.w !== rect.h) {
-        orientations.push({ w: rect.h, h: rect.w, rotationDeg: 90 });
-      }
-
-      // choose best free rect by minimum leftover area
-      let bestIndex = -1;
-      let bestScore = Number.POSITIVE_INFINITY;
-      let bestW = rect.w;
-      let bestH = rect.h;
-      let bestRot: 0 | 90 = 0;
-      for (let i = 0; i < free.length; i++) {
-        const fr = free[i];
-        for (const opt of orientations) {
-          if (!fits(fr, opt.w, opt.h)) continue;
-          const score = area(fr) - opt.w * opt.h;
-          if (
-            score < bestScore ||
-            (score === bestScore && opt.rotationDeg === 0 && bestRot === 90)
-          ) {
-            bestScore = score;
-            bestIndex = i;
-            bestW = opt.w;
-            bestH = opt.h;
-            bestRot = opt.rotationDeg;
-          }
-        }
-      }
-
-      if (bestIndex === -1) {
-        notPlaced.push(rect.id);
-        continue;
-      }
-
-      const target = free[bestIndex];
-      placed.push({ id: rect.id, x: target.x, y: target.y, rotationDeg: bestRot });
-
-      const newFree = splitFreeRect(target, bestW, bestH);
-      free = [...free.slice(0, bestIndex), ...free.slice(bestIndex + 1), ...newFree];
-      free = pruneContained(free);
-    }
-
-    return { placed, notPlaced };
   };
 
   const handleAutoLayout = () => {
