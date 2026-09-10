@@ -11,6 +11,8 @@ import {
   ringArea,
   simplify,
 } from './polygon';
+import { tracePrecise } from './trace';
+import { makeAlpha, rect } from './testUtils';
 
 const sq = (x: number, y: number, w: number, h: number): Ring => [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
 
@@ -126,5 +128,13 @@ describe('prepareBase and polygonsBounds', () => {
   it('returns null bounds for nothing', () => {
     expect(prepareBase([], 0)).toEqual([]);
     expect(polygonsBounds([])).toBeNull();
+  });
+
+  it('keeps traced edges on pixel boundaries', () => {
+    const b = polygonsBounds(prepareBase(tracePrecise(makeAlpha(200, 200, rect(50, 50, 100, 100)), 128), 0));
+    expect(b?.minX).toBeCloseTo(50, 1);
+    expect(b?.minY).toBeCloseTo(50, 1);
+    expect(b?.maxX).toBeCloseTo(150, 1);
+    expect(b?.maxY).toBeCloseTo(150, 1);
   });
 });

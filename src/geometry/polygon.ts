@@ -18,7 +18,8 @@ import type { Polygon, Ring } from './types';
 const SCALE = 100;
 const ARC_TOLERANCE_PX = 0.25;
 const MITER_LIMIT = 2;
-export const TRACE_SIMPLIFY_EPS_PX = 0.5;
+// 描邊只去掉極小的雜點；0.5px 會吃掉轉角的半像素斜角，讓邊平移
+export const TRACE_SIMPLIFY_EPS_PX = 0.1;
 
 const toPath = (ring: Ring): Path64 =>
   ring.map(([x, y]) => ({ x: Math.round(x * SCALE), y: Math.round(y * SCALE) }));
