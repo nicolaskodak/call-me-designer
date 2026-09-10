@@ -19,6 +19,7 @@ export default defineConfig({
         'src/editor/pathHistory.ts',
         'src/editor/guardMessage.ts',
         'src/utils/**/*.ts',
+        'src/source/sourceModel.ts',
       ],
       exclude: [
         '**/*.test.ts',
