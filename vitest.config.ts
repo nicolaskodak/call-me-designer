@@ -26,6 +26,8 @@ export default defineConfig({
         'src/geometry/testUtils.ts',
         'src/geometry/worker.ts',
         'src/imposition/measureSvg.ts',
+        'src/imposition/loadUploadedLayer.ts',
+        'src/imposition/exportFile.ts',
         'src/utils/imageProcessing.ts',
       ],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },

@@ -7,6 +7,7 @@ import { ImpositionPanel } from './components/panels/ImpositionPanel';
 import { SourcePanel } from './components/panels/SourcePanel';
 import { UnderprintPanel } from './components/panels/UnderprintPanel';
 import { Sidebar, type TabDef } from './components/Sidebar';
+import { Toast } from './components/Toast';
 import { useRegenerateGuard } from './editor/useRegenerateGuard';
 import { exportCutPdf } from './export/cutPdf';
 import { buildAlignedSvg, buildTrimmedCutSvg } from './export/svg';
@@ -23,6 +24,8 @@ import { useGeometryClient } from './hooks/useGeometryClient';
 import { useImposition } from './hooks/useImposition';
 import { useSourceImage } from './hooks/useSourceImage';
 import { useWorkerImage } from './hooks/useWorkerImage';
+import { downloadImpositionSvg } from './imposition/exportFile';
+import type { ImpositionLayerKind } from './imposition/exportSvg';
 import { DEFAULT_CUT_STYLE, DEFAULT_UNDERPRINT_STYLE, type ActiveTab, type DisplayStyle } from './types';
 import { DEFAULT_DPI } from './units';
 import { downloadText } from './utils/download';
@@ -37,6 +40,7 @@ const SVG_MIME = 'image/svg+xml;charset=utf-8';
 /** 第 6 階段改為讀取設定頁的顏色 */
 const EXPORT_CUT_COLOR = '#FF0000';
 const EXPORT_UNDERPRINT_COLOR = '#FFFFFF';
+const EXPORT_COLORS = { cut: EXPORT_CUT_COLOR, underprint: EXPORT_UNDERPRINT_COLOR };
 
 const confirmExport = (warnings: readonly string[]): boolean =>
   warnings.length === 0 || window.confirm(`${warnings.join('\n')}\n\n確定要匯出嗎？`);
@@ -85,7 +89,9 @@ const App: React.FC = () => {
   const underGeometry = useGeometry(client, 'underprint', imageId, underParamsPx);
   const under = useEditorSlot();
 
-  const imposition = useImposition(activeTab === 'imposition');
+  const imposition = useImposition(activeTab === 'imposition', DEFAULT_DPI);
+  const [notice, setNotice] = useState<string | null>(null);
+  const clearNotice = useCallback(() => setNotice(null), []);
   const impositionRef = useRef<ImpositionCanvasHandle>(null);
   const { guard, dialog } = useRegenerateGuard();
 
@@ -136,6 +142,39 @@ const App: React.FC = () => {
     downloadText(svg, `${source.name}-underprint.svg`, SVG_MIME);
   };
 
+  const sendToImposition = () => {
+    const cutEditor = cut.ref.current;
+    if (!source || !cutEditor) return;
+    const underPaths = underprintEnabled ? under.ref.current?.getPathData() ?? [] : [];
+    const { blob, widthPx, heightPx, dpi: d } = source.current;
+    imposition.sendFromSource({
+      sourceId: source.id,
+      name: source.name,
+      blob,
+      widthPx,
+      heightPx,
+      dpi: d,
+      cutPaths: cutEditor.getPathData(),
+      cutBounds: cutEditor.getBounds(),
+      underprint: underPaths.length > 0 ? underPaths : null,
+    });
+    setActiveTab('imposition');
+    setNotice(underPaths.length > 0 ? '已送到 Imposition（含白墨）' : '已送到 Imposition（不含白墨）');
+  };
+
+  const exportImposition = (kinds: readonly ImpositionLayerKind[], filename: string) => {
+    downloadImpositionSvg(imposition.state, kinds, EXPORT_COLORS, filename).catch((err: unknown) => {
+      console.error('匯出 Imposition SVG 失敗', err);
+      window.alert('匯出 SVG 失敗，請再試一次。');
+    });
+  };
+
+  const uploadImposition = (files: File[]) => {
+    imposition.uploadPairs(files).then(skipped => {
+      if (skipped.length > 0) window.alert(`以下檔名沒有配對成「圖片＋SVG」或無法載入，已略過：\n\n${skipped.join('\n')}`);
+    }).catch((err: unknown) => console.error('上傳配對失敗', err));
+  };
+
   const sourcePanel = (
     <SourcePanel
       source={source}
@@ -173,6 +212,7 @@ const App: React.FC = () => {
               onExportAligned={() => exportCut('aligned')}
               onExportTrimmed={() => exportCut('trimmed')}
               onExportPdf={exportPdf}
+              onSendToImposition={sendToImposition}
             />
           </>
         ) : null}
@@ -195,17 +235,26 @@ const App: React.FC = () => {
               showCutReference={showCutReference}
               onShowCutReferenceChange={setShowCutReference}
               onExport={exportUnderprint}
+              onSendToImposition={sendToImposition}
             />
           </>
         ) : null}
         {activeTab === 'imposition' ? (
           <ImpositionPanel
-            impositionState={imposition.impositionState}
-            setImpositionState={imposition.setImpositionState}
-            onUpload={imposition.handleImpositionUpload}
+            state={imposition.state}
+            update={imposition.update}
+            onUpload={uploadImposition}
             onSetLayerTotalCount={imposition.setLayerTotalCount}
-            onAutoLayout={imposition.handleAutoLayout}
-            onExportPDF={() => void impositionRef.current?.exportPDF()}
+            onAutoLayout={imposition.autoLayout}
+            onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers.svg')}
+            onExportCut={() => exportImposition(['cut'], 'imposition-cut.svg')}
+            onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint.svg')}
+            onExportPdf={() => {
+              impositionRef.current?.exportPDF().catch((err: unknown) => {
+                console.error('匯出 PDF 失敗', err);
+                window.alert('匯出 PDF 失敗，請再試一次。');
+              });
+            }}
           />
         ) : null}
       </Sidebar>
@@ -240,8 +289,9 @@ const App: React.FC = () => {
           />
         </div>
         <div className="absolute inset-0" hidden={activeTab !== 'imposition'}>
-          <ImpositionCanvas ref={impositionRef} impositionState={imposition.impositionState} setImpositionState={imposition.setImpositionState} />
+          <ImpositionCanvas ref={impositionRef} state={imposition.state} update={imposition.update} colors={EXPORT_COLORS} />
         </div>
+        <Toast message={notice} onDone={clearNotice} />
       </main>
 
       <ConfirmDialog {...dialog} />
