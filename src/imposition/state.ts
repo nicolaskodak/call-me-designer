@@ -35,20 +35,16 @@ export function upsertSourceLayer(state: ImpositionState, incoming: ImpositionLa
   };
 }
 
-const removeInstances = (state: ImpositionState, instancesToRemove: ReadonlySet<ImpositionInstance>): ImpositionState => {
-  const removeIds = new Set<string>();
-  instancesToRemove.forEach(inst => removeIds.add(inst.id));
-  return {
-    ...state,
-    instances: state.instances.filter(i => !instancesToRemove.has(i)),
-    notPlacedInstanceIds: state.notPlacedInstanceIds.filter(id => !removeIds.has(id)),
-    selectedInstanceId: state.selectedInstanceId && removeIds.has(state.selectedInstanceId) ? null : state.selectedInstanceId,
-  };
-};
+const removeInstances = (state: ImpositionState, ids: ReadonlySet<string>): ImpositionState => ({
+  ...state,
+  instances: state.instances.filter(i => !ids.has(i.id)),
+  notPlacedInstanceIds: state.notPlacedInstanceIds.filter(id => !ids.has(id)),
+  selectedInstanceId: state.selectedInstanceId && ids.has(state.selectedInstanceId) ? null : state.selectedInstanceId,
+});
 
 const removeLayer = (state: ImpositionState, layerId: string): ImpositionState => {
-  const instToRemove = new Set(state.instances.filter(i => i.layerId === layerId));
-  return { ...removeInstances(state, instToRemove), layers: state.layers.filter(l => l.id !== layerId), lastLayoutMessage: null };
+  const ids = new Set(state.instances.filter(i => i.layerId === layerId).map(i => i.id));
+  return { ...removeInstances(state, ids), layers: state.layers.filter(l => l.id !== layerId), lastLayoutMessage: null };
 };
 
 export function setLayerTotalCount(state: ImpositionState, layerId: string, totalCount: number, newId: IdFactory): ImpositionState {
@@ -58,7 +54,7 @@ export function setLayerTotalCount(state: ImpositionState, layerId: string, tota
   const current = state.instances.filter(i => i.layerId === layerId);
   const layers = state.layers.map(l => (l.id === layerId ? { ...l, totalCount: total } : l));
   if (current.length > total) {
-    const removed = new Set(current.slice(total));
+    const removed = new Set(current.slice(total).map(i => i.id));
     return { ...removeInstances({ ...state, layers }, removed), lastLayoutMessage: null };
   }
   return {
@@ -72,7 +68,7 @@ export function setLayerTotalCount(state: ImpositionState, layerId: string, tota
 export function deleteInstance(state: ImpositionState, instanceId: string): ImpositionState {
   const target = state.instances.find(i => i.id === instanceId);
   if (!target) return { ...state, selectedInstanceId: null };
-  const remaining = removeInstances(state, new Set([target]));
+  const remaining = removeInstances(state, new Set([instanceId]));
   const layer = state.layers.find(l => l.id === target.layerId);
   if (!layer) return { ...remaining, selectedInstanceId: null };
 

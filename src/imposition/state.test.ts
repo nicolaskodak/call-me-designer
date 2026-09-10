@@ -62,7 +62,7 @@ describe('addLayers', () => {
 describe('setLayerTotalCount', () => {
   it('grows, shrinks and deletes', () => {
     const next = idGen();
-    const grown = setLayerTotalCount(withLayer(), 'L1', 3, next);
+    const grown = setLayerTotalCount(withLayer(layer(), next), 'L1', 3, next);
     expect(grown.instances).toHaveLength(3);
     expect(grown.layers[0].totalCount).toBe(3);
 
@@ -83,7 +83,8 @@ describe('setLayerTotalCount', () => {
 
 describe('deleteInstance', () => {
   it('decrements the total and removes the layer with its last instance', () => {
-    const s = setLayerTotalCount(withLayer(), 'L1', 2, idGen());
+    const next = idGen();
+    const s = setLayerTotalCount(withLayer(layer(), next), 'L1', 2, next);
     const once = deleteInstance(s, s.instances[0].id);
     expect(once.layers[0].totalCount).toBe(1);
     expect(once.instances).toHaveLength(1);
