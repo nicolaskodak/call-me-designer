@@ -34,4 +34,4 @@ export const DEFAULT_UNDERPRINT_STYLE: DisplayStyle = {
   strokeWidth: 1,
 };
 
-export type ActiveTab = 'editor' | 'underprint' | 'imposition';
+export type ActiveTab = 'editor' | 'underprint' | 'imposition' | 'settings';

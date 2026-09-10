@@ -49,7 +49,6 @@ function DpiField({ dpi, source, onCommit }: { dpi: number; source: DpiSource; o
 export function SourcePanel({ source, loading, error, onUpload, onDpiChange, children }: SourcePanelProps) {
   const v = source?.current;
   const warnings = [
-    ...(v && !v.transparent ? ['此圖沒有透明背景，無法產生輪廓。'] : []),
     ...(v && isLargeImage(v) ? ['圖片很大，處理可能較慢。'] : []),
     ...(v && v.dpi < DPI_MIN ? ['有效 DPI 偏低，印刷可能不夠清晰。'] : []),
     ...(error ? [error] : []),

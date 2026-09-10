@@ -18,7 +18,10 @@ import {
   underprintParamsToPx,
 } from './geometry/params';
 import type { CutlineParams, UnderprintParams } from './geometry/types';
+import { BackgroundRemovalSection } from './components/panels/BackgroundRemovalSection';
+import { SettingsPage } from './components/panels/SettingsPage';
 import { useEditorSlot, type EditorSlot } from './hooks/useEditorSlot';
+import { useBackgroundRemoval } from './hooks/useBackgroundRemoval';
 import { useGeometry } from './hooks/useGeometry';
 import { useGeometryClient } from './hooks/useGeometryClient';
 import { useImposition } from './hooks/useImposition';
@@ -26,21 +29,18 @@ import { useSourceImage } from './hooks/useSourceImage';
 import { useWorkerImage } from './hooks/useWorkerImage';
 import { downloadImpositionSvg } from './imposition/exportFile';
 import type { ImpositionLayerKind } from './imposition/exportSvg';
+import { useSettings } from './settings/SettingsContext';
 import { DEFAULT_CUT_STYLE, DEFAULT_UNDERPRINT_STYLE, type ActiveTab, type DisplayStyle } from './types';
-import { DEFAULT_DPI } from './units';
 import { downloadText } from './utils/download';
 
 const TABS: readonly TabDef[] = [
   { id: 'editor', label: 'Editor' },
   { id: 'underprint', label: 'Underprint' },
   { id: 'imposition', label: 'Imposition' },
+  { id: 'settings', label: '設定' },
 ];
 
 const SVG_MIME = 'image/svg+xml;charset=utf-8';
-/** 第 6 階段改為讀取設定頁的顏色 */
-const EXPORT_CUT_COLOR = '#FF0000';
-const EXPORT_UNDERPRINT_COLOR = '#FFFFFF';
-const EXPORT_COLORS = { cut: EXPORT_CUT_COLOR, underprint: EXPORT_UNDERPRINT_COLOR };
 
 const confirmExport = (warnings: readonly string[]): boolean =>
   warnings.length === 0 || window.confirm(`${warnings.join('\n')}\n\n確定要匯出嗎？`);
@@ -58,8 +58,10 @@ const dirtyPages = (entries: readonly [string, EditorSlot][]): string[] =>
   entries.filter(([, slot]) => slot.dirty).map(([name]) => name);
 
 const App: React.FC = () => {
+  const { settings } = useSettings();
+  const exportColors = settings.exportColors;
   const [activeTab, setActiveTab] = useState<ActiveTab>('editor');
-  const sourceApi = useSourceImage(DEFAULT_DPI);
+  const sourceApi = useSourceImage(settings.defaultDpi);
   const { source } = sourceApi;
   const client = useGeometryClient();
   const imageId = useWorkerImage(client, source?.current ?? null);
@@ -89,7 +91,7 @@ const App: React.FC = () => {
   const underGeometry = useGeometry(client, 'underprint', imageId, underParamsPx);
   const under = useEditorSlot();
 
-  const imposition = useImposition(activeTab === 'imposition', DEFAULT_DPI);
+  const imposition = useImposition(activeTab === 'imposition', settings.defaultDpi);
   const [notice, setNotice] = useState<string | null>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
   const impositionRef = useRef<ImpositionCanvasHandle>(null);
@@ -108,17 +110,26 @@ const App: React.FC = () => {
   const guardUnder = (action: () => void) => guardSlots([['Underprint', under]], action);
   const guardSource = (action: () => void) => guardSlots([['Editor', cut], ['Underprint', under]], action);
 
+  const bgRemoval = useBackgroundRemoval(settings, sourceApi.replaceCurrent);
+  const removeBackground = () => {
+    if (!source) return;
+    // 一律從原圖去背，避免對已處理過的結果再處理一次
+    const input = source.original?.blob ?? source.current.blob;
+    guardSource(() => void bgRemoval.remove(input));
+  };
+  const revertOriginal = () => guardSource(() => sourceApi.revertToOriginal());
+
   const exportCut = (kind: 'aligned' | 'trimmed') => {
     const editor = cut.ref.current;
     if (!source || !editor || !confirmExport(cutGeometry.result?.warnings ?? [])) return;
     const { widthPx, heightPx, dpi: d } = source.current;
     const paths = editor.getPathData();
     if (kind === 'aligned') {
-      downloadText(buildAlignedSvg({ kind: 'cut', paths, widthPx, heightPx, dpi: d, color: EXPORT_CUT_COLOR }), `${source.name}-cut.svg`, SVG_MIME);
+      downloadText(buildAlignedSvg({ kind: 'cut', paths, widthPx, heightPx, dpi: d, color: exportColors.cut }), `${source.name}-cut.svg`, SVG_MIME);
       return;
     }
     const bounds = editor.getBounds();
-    if (bounds) downloadText(buildTrimmedCutSvg({ paths, bounds, dpi: d, color: EXPORT_CUT_COLOR }), `${source.name}-cut-trimmed.svg`, SVG_MIME);
+    if (bounds) downloadText(buildTrimmedCutSvg({ paths, bounds, dpi: d, color: exportColors.cut }), `${source.name}-cut-trimmed.svg`, SVG_MIME);
   };
 
   const exportPdf = () => {
@@ -126,7 +137,7 @@ const App: React.FC = () => {
     if (!source || !editor || !confirmExport(cutGeometry.result?.warnings ?? [])) return;
     const { widthPx, heightPx, dpi: d } = source.current;
     exportCutPdf(
-      { image: editor.getImage(), curveSets: editor.getCurveSets(), widthPx, heightPx, dpi: d, color: EXPORT_CUT_COLOR },
+      { image: editor.getImage(), curveSets: editor.getCurveSets(), widthPx, heightPx, dpi: d, color: exportColors.cut },
       `${source.name}-cut.pdf`,
     ).catch((err: unknown) => {
       console.error('匯出 PDF 失敗', err);
@@ -138,7 +149,7 @@ const App: React.FC = () => {
     const editor = under.ref.current;
     if (!source || !editor) return;
     const { widthPx, heightPx, dpi: d } = source.current;
-    const svg = buildAlignedSvg({ kind: 'underprint', paths: editor.getPathData(), widthPx, heightPx, dpi: d, color: EXPORT_UNDERPRINT_COLOR });
+    const svg = buildAlignedSvg({ kind: 'underprint', paths: editor.getPathData(), widthPx, heightPx, dpi: d, color: exportColors.underprint });
     downloadText(svg, `${source.name}-underprint.svg`, SVG_MIME);
   };
 
@@ -163,7 +174,7 @@ const App: React.FC = () => {
   };
 
   const exportImposition = (kinds: readonly ImpositionLayerKind[], filename: string) => {
-    downloadImpositionSvg(imposition.state, kinds, EXPORT_COLORS, filename).catch((err: unknown) => {
+    downloadImpositionSvg(imposition.state, kinds, exportColors, filename).catch((err: unknown) => {
       console.error('匯出 Imposition SVG 失敗', err);
       window.alert('匯出 SVG 失敗，請再試一次。');
     });
@@ -182,7 +193,18 @@ const App: React.FC = () => {
       error={sourceApi.error}
       onUpload={file => guardSource(() => void sourceApi.upload(file))}
       onDpiChange={d => guardSource(() => sourceApi.setDpi(d))}
-    />
+    >
+      <BackgroundRemovalSection
+        source={source}
+        hasKey={settings.removeBg.apiKey.trim().length > 0}
+        size={settings.removeBg.size}
+        busy={bgRemoval.busy || sourceApi.loading}
+        error={bgRemoval.error}
+        onRemove={removeBackground}
+        onRevert={revertOriginal}
+        onOpenSettings={() => setActiveTab('settings')}
+      />
+    </SourcePanel>
   );
 
   return (
@@ -257,6 +279,7 @@ const App: React.FC = () => {
             }}
           />
         ) : null}
+        {activeTab === 'settings' ? <SettingsPage /> : null}
       </Sidebar>
 
       <main className="flex-1 relative h-full bg-[radial-gradient(#333_1px,transparent_1px)] [background-size:16px_16px] bg-neutral-900">
@@ -289,7 +312,10 @@ const App: React.FC = () => {
           />
         </div>
         <div className="absolute inset-0" hidden={activeTab !== 'imposition'}>
-          <ImpositionCanvas ref={impositionRef} state={imposition.state} update={imposition.update} colors={EXPORT_COLORS} />
+          <ImpositionCanvas ref={impositionRef} state={imposition.state} update={imposition.update} colors={exportColors} />
+        </div>
+        <div className="absolute inset-0 flex items-center justify-center text-neutral-500 text-sm" hidden={activeTab !== 'settings'}>
+          設定會自動儲存在這個瀏覽器。
         </div>
         <Toast message={notice} onDone={clearNotice} />
       </main>
