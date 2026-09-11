@@ -15,3 +15,8 @@ body {
 canvas {
   display: block;
 }
+
+/* Tailwind 的 display utility（flex、grid…）會蓋掉瀏覽器預設的 [hidden]；統一強制隱藏 */
+[hidden] {
+  display: none !important;
+}

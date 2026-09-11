@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } f
 import paper from 'paper';
 import { jsPDF } from 'jspdf';
 import { AppState } from '../types';
-import { generateOutlineCoordinates, loadImage } from '../src/utils/imageProcessing';
+import { generateOutlineCoordinates, loadImage } from '../utils/imageProcessing';
 
 interface EditorCanvasProps {
   appState: AppState;

@@ -1,88 +1,37 @@
-export interface Point {
-    x: number;
-    y: number;
-  }
-  
-  export interface AppState {
-    imageUrl: string | null;
-    imageWidth: number;
-    imageHeight: number;
-    // Processing parameters
-    blurRadius: number; // Controls the "spread" potential
-    threshold: number;  // Controls the "distance" (lower threshold on blurred alpha = wider outline)
-    simplification: number; // Paper.js simplify tolerance
-    showOriginal: boolean;
-    showPoints: boolean;
-    fillColor: string;
-    fillOpacity: number;
-    strokeColor: string;
-    strokeOpacity: number;
-    strokeWidth: number;
-  }
-  
-  export const DEFAULT_STATE: AppState = {
-    imageUrl: null,
-    imageWidth: 0,
-    imageHeight: 0,
-    blurRadius: 15,
-    threshold: 10, // Low threshold = Outer boundary
-    simplification: 2,
-    showOriginal: true,
-    showPoints: true,
-    fillColor: '#3b82f6', // blue-500
-    fillOpacity: 0.3,     // Transparent by default to see image
-    strokeColor: '#ef4444', // red-500
-    strokeOpacity: 1.0,
-    strokeWidth: 3,
-  };
+/** 一條 SVG 路徑（圖片 px 座標）。白墨的 CompoundPath 會帶 fillRule。 */
+export interface PathData {
+  d: string;
+  fillRule?: 'evenodd';
+}
 
-  export type ActiveTab = 'editor' | 'mockup';
+export interface DisplayStyle {
+  showOriginal: boolean;
+  showPoints: boolean;
+  fillColor: string;
+  fillOpacity: number;
+  strokeColor: string;
+  strokeOpacity: number;
+  strokeWidth: number;
+}
 
-  export interface MockupLayer {
-    id: string;
-    name: string;
-    imageUrl: string;
-    svgText: string;
-    width: number;
-    height: number;
-    /** layout box derived from SVG outline bbox (defaults to full image if unavailable) */
-    layoutX: number;
-    layoutY: number;
-    layoutWidth: number;
-    layoutHeight: number;
-    /** total instances count for this layer (0 => delete) */
-    totalCount: number;
-  }
+export const DEFAULT_CUT_STYLE: DisplayStyle = {
+  showOriginal: true,
+  showPoints: true,
+  fillColor: '#3b82f6',
+  fillOpacity: 0.3,
+  strokeColor: '#ef4444',
+  strokeOpacity: 1,
+  strokeWidth: 3,
+};
 
-  export interface MockupInstance {
-    id: string;
-    layerId: string;
-    x: number;
-    y: number;
-    /** rotation applied during layout/rendering. Only 0 or 90 are currently supported. */
-    rotationDeg: 0 | 90;
-  }
+export const DEFAULT_UNDERPRINT_STYLE: DisplayStyle = {
+  showOriginal: true,
+  showPoints: true,
+  fillColor: '#ffffff',
+  fillOpacity: 0.7,
+  strokeColor: '#22d3ee',
+  strokeOpacity: 1,
+  strokeWidth: 1,
+};
 
-  export interface MockupState {
-    boundaryWidth: number;
-    boundaryHeight: number;
-    minGap: number;
-    allowRotate90: boolean;
-    layers: MockupLayer[];
-    instances: MockupInstance[];
-    selectedInstanceId: string | null;
-    notPlacedInstanceIds: string[];
-    lastLayoutMessage: string | null;
-  }
-
-  export const DEFAULT_MOCKUP_STATE: MockupState = {
-    boundaryWidth: 900,
-    boundaryHeight: 600,
-    minGap: 10,
-    allowRotate90: false,
-    layers: [],
-    instances: [],
-    selectedInstanceId: null,
-    notPlacedInstanceIds: [],
-    lastLayoutMessage: null,
-  };
+export type ActiveTab = 'editor' | 'underprint' | 'imposition' | 'settings';

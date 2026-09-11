@@ -1,525 +1,336 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import EditorCanvas, { EditorCanvasHandle } from './components/EditorCanvas';
-import Controls from './components/Controls';
-import MockupCanvas, { MockupCanvasHandle } from './components/MockupCanvas';
-import { ActiveTab, AppState, DEFAULT_MOCKUP_STATE, DEFAULT_STATE, MockupInstance, MockupLayer, MockupState } from './types';
-import { loadImage } from './utils/imageProcessing';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { GeometryView } from './components/GeometryView';
+import ImpositionCanvas, { type ImpositionCanvasHandle } from './components/ImpositionCanvas';
+import { CutlinePanel } from './components/panels/CutlinePanel';
+import { ImpositionPanel } from './components/panels/ImpositionPanel';
+import { SourcePanel } from './components/panels/SourcePanel';
+import { UnderprintPanel } from './components/panels/UnderprintPanel';
+import { Sidebar, type TabDef } from './components/Sidebar';
+import { Toast } from './components/Toast';
+import { useRegenerateGuard } from './editor/useRegenerateGuard';
+import { exportCutPdf } from './export/cutPdf';
+import { buildAlignedSvg, buildTrimmedCutSvg } from './export/svg';
+import {
+  cutlineParamsToPx,
+  DEFAULT_CUTLINE_PARAMS,
+  DEFAULT_UNDERPRINT_PARAMS,
+  underprintParamsToPx,
+} from './geometry/params';
+import type { CutlineParams, UnderprintParams } from './geometry/types';
+import { BackgroundRemovalSection } from './components/panels/BackgroundRemovalSection';
+import { SettingsPage } from './components/panels/SettingsPage';
+import { useEditorSlot, type EditorSlot } from './hooks/useEditorSlot';
+import { useBackgroundRemoval } from './hooks/useBackgroundRemoval';
+import { useGeometry } from './hooks/useGeometry';
+import { useGeometryClient } from './hooks/useGeometryClient';
+import { useImposition } from './hooks/useImposition';
+import { useSourceImage } from './hooks/useSourceImage';
+import { useWorkerImage } from './hooks/useWorkerImage';
+import { downloadImpositionSvg } from './imposition/exportFile';
+import type { ImpositionLayerKind } from './imposition/exportSvg';
+import { useSettings } from './settings/SettingsContext';
+import { DEFAULT_CUT_STYLE, DEFAULT_UNDERPRINT_STYLE, type ActiveTab, type DisplayStyle } from './types';
+import { downloadText } from './utils/download';
+
+const TABS: readonly TabDef[] = [
+  { id: 'editor', label: 'Editor' },
+  { id: 'underprint', label: 'Underprint' },
+  { id: 'imposition', label: 'Imposition' },
+  { id: 'settings', label: '設定' },
+];
+
+const SVG_MIME = 'image/svg+xml;charset=utf-8';
+
+const confirmExport = (warnings: readonly string[]): boolean =>
+  warnings.length === 0 || window.confirm(`${warnings.join('\n')}\n\n確定要匯出嗎？`);
+
+const EDITOR_TIPS = (
+  <>
+    <div>拖曳節點調整形狀。</div>
+    <div>雙擊節點刪除。</div>
+    <div>點線段新增節點。Ctrl/Cmd+Z 復原。</div>
+  </>
+);
+
+/** 回傳目前有手動編輯、會被覆蓋的分頁名稱 */
+const dirtyPages = (entries: readonly [string, EditorSlot][]): string[] =>
+  entries.filter(([, slot]) => slot.dirty).map(([name]) => name);
 
 const App: React.FC = () => {
+  const { settings } = useSettings();
+  const exportColors = settings.exportColors;
   const [activeTab, setActiveTab] = useState<ActiveTab>('editor');
-  const [appState, setAppState] = useState<AppState>(DEFAULT_STATE);
-  const [mockupState, setMockupState] = useState<MockupState>(DEFAULT_MOCKUP_STATE);
-  const [segmentCount, setSegmentCount] = useState(0);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  
-  const editorRef = useRef<EditorCanvasHandle>(null);
-  const mockupRef = useRef<MockupCanvasHandle>(null);
+  const sourceApi = useSourceImage(settings.defaultDpi);
+  const { source } = sourceApi;
+  const client = useGeometryClient();
+  const imageId = useWorkerImage(client, source?.current ?? null);
+  const dpi = source?.current.dpi ?? null;
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const url = URL.createObjectURL(file);
-      try {
-        const img = await loadImage(url);
-        setAppState(prev => ({
-          ...prev,
-          imageUrl: url,
-          imageWidth: img.width,
-          imageHeight: img.height,
-          // Reset somewhat on new image but keep preferences
-          threshold: 10,
-          blurRadius: 15
-        }));
-        // Reset undo/redo state when new image loads
-        setCanUndo(false);
-        setCanRedo(false);
-      } catch (err) {
-        console.error("Failed to load image", err);
-        alert("Failed to load image. Please try a valid PNG.");
-      }
-    }
-  };
+  // 刀模
+  const [cutParams, setCutParams] = useState<CutlineParams>(DEFAULT_CUTLINE_PARAMS);
+  const [cutStyle, setCutStyle] = useState<DisplayStyle>(DEFAULT_CUT_STYLE);
+  const cutParamsPx = useMemo(() => (dpi ? cutlineParamsToPx(cutParams, dpi) : null), [cutParams, dpi]);
+  const cutGeometry = useGeometry(client, 'cutline', imageId, cutParamsPx);
+  const cut = useEditorSlot();
 
-  const normalizeSvgForOverlay = (svgText: string) => {
-    // Ensure the top-level <svg> scales to the item's box.
-    // We keep this as a minimal string transform to avoid adding deps.
-    const hasWidth = /<svg[^>]*\swidth=/.test(svgText);
-    const hasHeight = /<svg[^>]*\sheight=/.test(svgText);
-
-    let result = svgText;
-    if (!hasWidth) {
-      result = result.replace(/<svg(\s|>)/, '<svg width="100%"$1');
-    }
-    if (!hasHeight) {
-      result = result.replace(/<svg(\s|>)/, '<svg height="100%"$1');
-    }
-    return result;
-  };
-
-  const measureSvgBBox = (svgText: string, viewportW: number, viewportH: number, padding = 2) => {
-    const host = document.createElement('div');
-    host.style.position = 'absolute';
-    host.style.left = '-100000px';
-    host.style.top = '-100000px';
-    host.style.width = '0';
-    host.style.height = '0';
-    host.style.overflow = 'hidden';
-    host.style.visibility = 'hidden';
-
-    try {
-      host.innerHTML = svgText.trim();
-      const svg = host.querySelector('svg') as SVGGraphicsElement | null;
-      if (!svg) {
-        return { x: 0, y: 0, width: viewportW, height: viewportH };
-      }
-
-      svg.setAttribute('width', String(viewportW));
-      svg.setAttribute('height', String(viewportH));
-
-      document.body.appendChild(host);
-      const bbox = svg.getBBox();
-
-      const x0 = Math.max(0, bbox.x - padding);
-      const y0 = Math.max(0, bbox.y - padding);
-      const x1 = Math.min(viewportW, bbox.x + bbox.width + padding);
-      const y1 = Math.min(viewportH, bbox.y + bbox.height + padding);
-
-      const width = Math.max(1, x1 - x0);
-      const height = Math.max(1, y1 - y0);
-
-      return { x: x0, y: y0, width, height };
-    } catch {
-      return { x: 0, y: 0, width: viewportW, height: viewportH };
-    } finally {
-      if (host.parentNode) host.parentNode.removeChild(host);
-    }
-  };
-
-  const newId = () => {
-    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  };
-
-  const setLayerTotalCount = (layerId: string, totalCount: number) => {
-    const safeTotal = Math.max(0, Math.floor(Number.isFinite(totalCount) ? totalCount : 0));
-
-    setMockupState(prev => {
-      if (safeTotal === 0) {
-        const instanceIds = new Set(prev.instances.filter(i => i.layerId === layerId).map(i => i.id));
-        const layers = prev.layers.filter(l => l.id !== layerId);
-        const instances = prev.instances.filter(i => i.layerId !== layerId);
-        const selectedInstanceId = prev.selectedInstanceId && instanceIds.has(prev.selectedInstanceId)
-          ? null
-          : prev.selectedInstanceId;
-        const notPlacedInstanceIds = prev.notPlacedInstanceIds.filter(id => !instanceIds.has(id));
-
-        return {
-          ...prev,
-          layers,
-          instances,
-          selectedInstanceId,
-          notPlacedInstanceIds,
-          lastLayoutMessage: null,
-        };
-      }
-
-      const layers = prev.layers.map(l => (l.id === layerId ? { ...l, totalCount: safeTotal } : l));
-
-      const instancesForLayer = prev.instances.filter(i => i.layerId === layerId);
-      const requiredTotal = safeTotal;
-
-      let instances: MockupInstance[] = prev.instances;
-      let removedIds: Set<string> | null = null;
-
-      if (instancesForLayer.length > requiredTotal) {
-        const keepIds = new Set(instancesForLayer.slice(0, requiredTotal).map(i => i.id));
-        removedIds = new Set(instancesForLayer.filter(i => !keepIds.has(i.id)).map(i => i.id));
-        instances = prev.instances.filter(i => i.layerId !== layerId || keepIds.has(i.id));
-      } else if (instancesForLayer.length < requiredTotal) {
-        const missingCount = requiredTotal - instancesForLayer.length;
-        const additions: MockupInstance[] = Array.from({ length: missingCount }).map(() => ({
-          id: newId(),
-          layerId,
-          x: 0,
-          y: 0,
-          rotationDeg: 0,
-        }));
-        instances = [...prev.instances, ...additions];
-      }
-
-      const selectedInstanceId = removedIds && prev.selectedInstanceId && removedIds.has(prev.selectedInstanceId)
-        ? null
-        : prev.selectedInstanceId;
-
-      const notPlacedInstanceIds = removedIds
-        ? prev.notPlacedInstanceIds.filter(id => !removedIds.has(id))
-        : prev.notPlacedInstanceIds;
-
-      return { ...prev, layers, instances, selectedInstanceId, notPlacedInstanceIds, lastLayoutMessage: null };
-    });
-  };
-
-  type PackRect = { id: string; w: number; h: number };
-  type PackPlacement = { id: string; x: number; y: number; rotationDeg: 0 | 90 };
-  type PackResult = { placed: PackPlacement[]; notPlaced: string[] };
-
-  const packWithinBoundary = (
-    rects: PackRect[],
-    boundaryWidth: number,
-    boundaryHeight: number,
-    allowRotate90: boolean
-  ): PackResult => {
-    type FreeRect = { x: number; y: number; w: number; h: number };
-    let free: FreeRect[] = [{ x: 0, y: 0, w: boundaryWidth, h: boundaryHeight }];
-
-    const placed: PackPlacement[] = [];
-    const notPlaced: string[] = [];
-
-    const fits = (r: FreeRect, w: number, h: number) => w <= r.w && h <= r.h;
-    const area = (r: { w: number; h: number }) => r.w * r.h;
-
-    const pruneContained = (rects: FreeRect[]) => {
-      return rects.filter((a, idx) => {
-        for (let j = 0; j < rects.length; j++) {
-          if (j === idx) continue;
-          const b = rects[j];
-          const contained =
-            a.x >= b.x &&
-            a.y >= b.y &&
-            a.x + a.w <= b.x + b.w &&
-            a.y + a.h <= b.y + b.h;
-          if (contained) return false;
-        }
-        return a.w > 0 && a.h > 0;
-      });
-    };
-
-    const splitFreeRect = (r: FreeRect, w: number, h: number) => {
-      // Place at (r.x, r.y). Split into right and bottom.
-      const right: FreeRect = { x: r.x + w, y: r.y, w: r.w - w, h };
-      const bottom: FreeRect = { x: r.x, y: r.y + h, w: r.w, h: r.h - h };
-      const bottomRight: FreeRect = { x: r.x + w, y: r.y + h, w: r.w - w, h: r.h - h };
-
-      // Keep a simple guillotine split plus leftover area.
-      return pruneContained([right, bottom, bottomRight].filter(fr => fr.w > 0 && fr.h > 0));
-    };
-
-    const sorted = [...rects].sort((a, b) => area(b) - area(a));
-
-    for (const rect of sorted) {
-      const orientations: Array<{ w: number; h: number; rotationDeg: 0 | 90 }> = [
-        { w: rect.w, h: rect.h, rotationDeg: 0 },
-      ];
-      if (allowRotate90 && rect.w !== rect.h) {
-        orientations.push({ w: rect.h, h: rect.w, rotationDeg: 90 });
-      }
-
-      // choose best free rect by minimum leftover area
-      let bestIndex = -1;
-      let bestScore = Number.POSITIVE_INFINITY;
-      let bestW = rect.w;
-      let bestH = rect.h;
-      let bestRot: 0 | 90 = 0;
-      for (let i = 0; i < free.length; i++) {
-        const fr = free[i];
-        for (const opt of orientations) {
-          if (!fits(fr, opt.w, opt.h)) continue;
-          const score = area(fr) - opt.w * opt.h;
-          if (
-            score < bestScore ||
-            (score === bestScore && opt.rotationDeg === 0 && bestRot === 90)
-          ) {
-            bestScore = score;
-            bestIndex = i;
-            bestW = opt.w;
-            bestH = opt.h;
-            bestRot = opt.rotationDeg;
-          }
-        }
-      }
-
-      if (bestIndex === -1) {
-        notPlaced.push(rect.id);
-        continue;
-      }
-
-      const target = free[bestIndex];
-      placed.push({ id: rect.id, x: target.x, y: target.y, rotationDeg: bestRot });
-
-      const newFree = splitFreeRect(target, bestW, bestH);
-      free = [...free.slice(0, bestIndex), ...free.slice(bestIndex + 1), ...newFree];
-      free = pruneContained(free);
-    }
-
-    return { placed, notPlaced };
-  };
-
-  const handleAutoLayout = () => {
-    setMockupState(prev => {
-      const layers = prev.layers.map(layer => {
-        const missingLayout =
-          layer.layoutWidth == null ||
-          layer.layoutHeight == null ||
-          layer.layoutX == null ||
-          layer.layoutY == null;
-
-        if (!missingLayout) return layer;
-
-        const bbox = measureSvgBBox(layer.svgText, layer.width, layer.height);
-        return {
-          ...layer,
-          layoutX: bbox.x,
-          layoutY: bbox.y,
-          layoutWidth: bbox.width,
-          layoutHeight: bbox.height,
-        };
-      });
-
-      const layerMap = new Map<string, MockupLayer>(layers.map(l => [l.id, l] as const));
-
-      const baseInstances = prev.allowRotate90
-        ? prev.instances
-        : prev.instances.map(i => ({ ...i, rotationDeg: 0 as const }));
-
-      const rects: PackRect[] = baseInstances
-        .map(inst => {
-          const layer = layerMap.get(inst.layerId);
-          if (!layer) return null;
-          return {
-            id: inst.id,
-            w: (layer.layoutWidth ?? layer.width) + prev.minGap,
-            h: (layer.layoutHeight ?? layer.height) + prev.minGap,
-          };
-        })
-        .filter((x): x is PackRect => Boolean(x));
-
-      const result = packWithinBoundary(rects, prev.boundaryWidth, prev.boundaryHeight, prev.allowRotate90);
-      const posMap = new Map<string, PackPlacement>(result.placed.map(p => [p.id, p] as const));
-
-      const instances = baseInstances.map(inst => {
-        const p = posMap.get(inst.id);
-        if (!p) return inst;
-        return { ...inst, x: p.x, y: p.y, rotationDeg: p.rotationDeg };
-      });
-
-      const notPlacedInstanceIds = result.notPlaced;
-
-      const placedCount = result.placed.length;
-      const notPlacedCount = result.notPlaced.length;
-      const message = `排圖完成：塞得進去 ${placedCount} 個，塞不進去 ${notPlacedCount} 個。${prev.allowRotate90 ? '（允許 90° 旋轉）' : ''}`;
-
-      return { ...prev, layers, instances, notPlacedInstanceIds, lastLayoutMessage: message };
-    });
-  };
-
-  const deleteSelectedInstance = useCallback(() => {
-    setMockupState(prev => {
-      if (!prev.selectedInstanceId) return prev;
-      const target = prev.instances.find(i => i.id === prev.selectedInstanceId);
-      if (!target) return { ...prev, selectedInstanceId: null };
-
-      const instances = prev.instances.filter(i => i.id !== target.id);
-      const notPlacedInstanceIds = prev.notPlacedInstanceIds.filter(id => id !== target.id);
-
-      // Decrement layer total; if becomes 0, delete the layer.
-      const layer = prev.layers.find(l => l.id === target.layerId);
-      if (!layer) {
-        return { ...prev, instances, notPlacedInstanceIds, selectedInstanceId: null };
-      }
-
-      const newTotal = Math.max(0, (layer.totalCount ?? 0) - 1);
-      if (newTotal === 0) {
-        const layers = prev.layers.filter(l => l.id !== layer.id);
-        const remainingInstances = instances.filter(i => i.layerId !== layer.id);
-        return {
-          ...prev,
-          layers,
-          instances: remainingInstances,
-          notPlacedInstanceIds: notPlacedInstanceIds.filter(id => remainingInstances.some(i => i.id === id)),
-          selectedInstanceId: null,
-        };
-      }
-
-      const layers = prev.layers.map(l => (l.id === layer.id ? { ...l, totalCount: newTotal } : l));
-      return { ...prev, layers, instances, notPlacedInstanceIds, selectedInstanceId: null };
-    });
-  }, []);
-
+  // 白墨：這張圖開過白墨頁之後才計算
+  const [underParams, setUnderParams] = useState<UnderprintParams>(DEFAULT_UNDERPRINT_PARAMS);
+  const [underStyle, setUnderStyle] = useState<DisplayStyle>(DEFAULT_UNDERPRINT_STYLE);
+  const [showCutReference, setShowCutReference] = useState(true);
+  const [underprintVisitedFor, setUnderprintVisitedFor] = useState<string | null>(null);
+  const sourceId = source?.id ?? null;
   useEffect(() => {
-    if (activeTab !== 'mockup') return;
+    if (activeTab === 'underprint' && sourceId) setUnderprintVisitedFor(sourceId);
+  }, [activeTab, sourceId]);
+  const underprintEnabled = sourceId !== null && underprintVisitedFor === sourceId;
+  const underParamsPx = useMemo(
+    () => (dpi && underprintEnabled ? underprintParamsToPx(underParams, dpi) : null),
+    [underParams, dpi, underprintEnabled],
+  );
+  const underGeometry = useGeometry(client, 'underprint', imageId, underParamsPx);
+  const under = useEditorSlot();
 
-    const onKeyDown = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      const tag = el?.tagName?.toLowerCase();
-      const isEditing =
-        tag === 'input' ||
-        tag === 'textarea' ||
-        (el ? el.isContentEditable : false);
-      if (isEditing) return;
+  const imposition = useImposition(activeTab === 'imposition', settings.defaultDpi);
+  const [notice, setNotice] = useState<string | null>(null);
+  const clearNotice = useCallback(() => setNotice(null), []);
+  const impositionRef = useRef<ImpositionCanvasHandle>(null);
+  const { guard, dialog } = useRegenerateGuard();
 
-      const key = e.key.toLowerCase();
-      if (key === 'x' || e.key === 'Delete' || e.key === 'Backspace') {
-        deleteSelectedInstance();
-      }
-    };
+  // 確認後立刻清掉 dirty，避免拖拉桿時重複詢問
+  const guardSlots = useCallback(
+    (entries: readonly [string, EditorSlot][], action: () => void) =>
+      guard(dirtyPages(entries), () => {
+        entries.forEach(([, slot]) => slot.clearDirty());
+        action();
+      }),
+    [guard],
+  );
+  const guardCut = (action: () => void) => guardSlots([['Editor', cut]], action);
+  const guardUnder = (action: () => void) => guardSlots([['Underprint', under]], action);
+  const guardSource = (action: () => void) => guardSlots([['Editor', cut], ['Underprint', under]], action);
 
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeTab, deleteSelectedInstance]);
+  const bgRemoval = useBackgroundRemoval(settings, sourceApi.replaceCurrent);
+  const removeBackground = () => {
+    if (!source) return;
+    // 一律從原圖去背，避免對已處理過的結果再處理一次
+    const input = source.original?.blob ?? source.current.blob;
+    guardSource(() => void bgRemoval.remove(input, source.id));
+  };
+  const revertOriginal = () => guardSource(() => sourceApi.revertToOriginal());
 
-  const handleMockupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files: File[] = Array.from(e.target.files ?? []);
-    if (files.length === 0) return;
-
-    const groups = new Map<string, { image?: File; svg?: File }>();
-
-    const getStem = (filename: string) => filename.replace(/\.[^.]+$/, '');
-
-    for (const file of files) {
-      const nameLower = file.name.toLowerCase();
-      const stem = getStem(file.name);
-      const entry = groups.get(stem) ?? {};
-
-      const isSvg = file.type === 'image/svg+xml' || nameLower.endsWith('.svg');
-      const isImage = file.type.startsWith('image/') && !isSvg;
-
-      if (isSvg) entry.svg = file;
-      if (isImage) entry.image = file;
-
-      groups.set(stem, entry);
+  const exportCut = (kind: 'aligned' | 'trimmed') => {
+    const editor = cut.ref.current;
+    if (!source || !editor || !confirmExport(cutGeometry.result?.warnings ?? [])) return;
+    const { widthPx, heightPx, dpi: d } = source.current;
+    const paths = editor.getPathData();
+    if (kind === 'aligned') {
+      downloadText(buildAlignedSvg({ kind: 'cut', paths, widthPx, heightPx, dpi: d, color: exportColors.cut }), `${source.name}-cut.svg`, SVG_MIME);
+      return;
     }
-
-    const missing: string[] = [];
-    const layersToAdd: MockupLayer[] = [];
-    const instancesToAdd: MockupInstance[] = [];
-
-    for (const [stem, entry] of groups.entries()) {
-      if (!entry.image || !entry.svg) {
-        missing.push(stem);
-        continue;
-      }
-
-      const imageUrl = URL.createObjectURL(entry.image);
-      try {
-        const [img, svgTextRaw] = await Promise.all([loadImage(imageUrl), entry.svg.text()]);
-        const svgText = normalizeSvgForOverlay(svgTextRaw);
-        const bbox = measureSvgBBox(svgText, img.width, img.height);
-
-        const layerId = newId();
-        layersToAdd.push({
-          id: layerId,
-          name: stem,
-          imageUrl,
-          svgText,
-          width: img.width,
-          height: img.height,
-          layoutX: bbox.x,
-          layoutY: bbox.y,
-          layoutWidth: bbox.width,
-          layoutHeight: bbox.height,
-          totalCount: 1,
-        });
-
-        instancesToAdd.push({
-          id: newId(),
-          layerId,
-          x: 0,
-          y: 0,
-          rotationDeg: 0,
-        });
-      } catch (err) {
-        console.error('Failed to load mockup pair', stem, err);
-        missing.push(stem);
-      }
-    }
-
-    if (layersToAdd.length > 0) {
-      setMockupState(prev => ({
-        ...prev,
-        layers: [...prev.layers, ...layersToAdd],
-        instances: [...prev.instances, ...instancesToAdd],
-        notPlacedInstanceIds: [],
-        lastLayoutMessage: null,
-      }));
-    }
-
-    if (missing.length > 0) {
-      alert(`以下檔名未能配對到「圖片 + SVG」一組，已略過：\n\n${missing.join('\n')}`);
-    }
+    const bounds = editor.getBounds();
+    if (bounds) downloadText(buildTrimmedCutSvg({ paths, bounds, dpi: d, color: exportColors.cut }), `${source.name}-cut-trimmed.svg`, SVG_MIME);
   };
 
-  const handleExportSvgAligned = () => {
-    editorRef.current?.exportSVGAligned();
+  const exportPdf = () => {
+    const editor = cut.ref.current;
+    if (!source || !editor || !confirmExport(cutGeometry.result?.warnings ?? [])) return;
+    const { widthPx, heightPx, dpi: d } = source.current;
+    exportCutPdf(
+      { image: editor.getImage(), curveSets: editor.getCurveSets(), widthPx, heightPx, dpi: d, color: exportColors.cut },
+      `${source.name}-cut.pdf`,
+    ).catch((err: unknown) => {
+      console.error('匯出 PDF 失敗', err);
+      window.alert('匯出 PDF 失敗，請再試一次。');
+    });
   };
 
-  const handleExportSvgTrimmed = () => {
-    editorRef.current?.exportSVGTrimmed();
+  const exportUnderprint = () => {
+    const editor = under.ref.current;
+    if (!source || !editor) return;
+    const { widthPx, heightPx, dpi: d } = source.current;
+    const svg = buildAlignedSvg({ kind: 'underprint', paths: editor.getPathData(), widthPx, heightPx, dpi: d, color: exportColors.underprint });
+    downloadText(svg, `${source.name}-underprint.svg`, SVG_MIME);
   };
 
-  const handleExportPDF = () => {
-      if (editorRef.current) {
-          editorRef.current.exportPDF();
-      }
+  const sendToImposition = () => {
+    const cutEditor = cut.ref.current;
+    if (!source || !cutEditor) return;
+    const underPaths = underprintEnabled ? under.ref.current?.getPathData() ?? [] : [];
+    const { blob, widthPx, heightPx, dpi: d } = source.current;
+    imposition.sendFromSource({
+      sourceId: source.id,
+      name: source.name,
+      blob,
+      widthPx,
+      heightPx,
+      dpi: d,
+      cutPaths: cutEditor.getPathData(),
+      cutBounds: cutEditor.getBounds(),
+      underprint: underPaths.length > 0 ? underPaths : null,
+    });
+    setActiveTab('imposition');
+    setNotice(underPaths.length > 0 ? '已送到 Imposition（含白墨）' : '已送到 Imposition（不含白墨）');
   };
 
-  const handleExportMockupPDF = () => {
-    mockupRef.current?.exportPDF();
+  const exportImposition = (kinds: readonly ImpositionLayerKind[], filename: string) => {
+    downloadImpositionSvg(imposition.state, kinds, exportColors, filename).catch((err: unknown) => {
+      console.error('匯出 Imposition SVG 失敗', err);
+      window.alert('匯出 SVG 失敗，請再試一次。');
+    });
   };
 
-  const handleUndo = () => editorRef.current?.undo();
-  const handleRedo = () => editorRef.current?.redo();
+  const uploadImposition = (files: File[]) => {
+    imposition.uploadPairs(files).then(skipped => {
+      if (skipped.length > 0) window.alert(`以下檔名沒有配對成「圖片＋SVG」或無法載入，已略過：\n\n${skipped.join('\n')}`);
+    }).catch((err: unknown) => console.error('上傳配對失敗', err));
+  };
 
-  const onHistoryChange = useCallback((u: boolean, r: boolean) => {
-      setCanUndo(u);
-      setCanRedo(r);
-  }, []);
+  const sourcePanel = (
+    <SourcePanel
+      source={source}
+      loading={sourceApi.loading}
+      error={sourceApi.error}
+      onUpload={file => guardSource(() => {
+        // 換圖時中止進行中的去背，避免結果套到新圖上
+        bgRemoval.cancel();
+        void sourceApi.upload(file);
+      })}
+      onDpiChange={d => guardSource(() => sourceApi.setDpi(d))}
+    >
+      <BackgroundRemovalSection
+        source={source}
+        hasKey={settings.removeBg.apiKey.trim().length > 0}
+        size={settings.removeBg.size}
+        busy={bgRemoval.busy || sourceApi.loading}
+        error={bgRemoval.error}
+        onRemove={removeBackground}
+        onRevert={revertOriginal}
+        onOpenSettings={() => setActiveTab('settings')}
+      />
+    </SourcePanel>
+  );
 
   return (
     <div className="flex h-screen w-screen bg-black overflow-hidden font-sans">
-      <Controls 
+      <Sidebar
+        tabs={TABS}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        appState={appState} 
-        setAppState={setAppState} 
-        onUpload={handleUpload}
-        onMockupUpload={handleMockupUpload}
-        mockupState={mockupState}
-        setMockupState={setMockupState}
-        onSetLayerTotalCount={setLayerTotalCount}
-        onAutoLayout={handleAutoLayout}
-        onExportMockupPDF={handleExportMockupPDF}
-        onExportSvgAligned={handleExportSvgAligned}
-        onExportSvgTrimmed={handleExportSvgTrimmed}
-        onExportPDF={handleExportPDF}
-        segmentCount={segmentCount}
-        onUndo={handleUndo}
-        onRedo={handleRedo}
-        canUndo={canUndo}
-        canRedo={canRedo}
-      />
-      
-      <main className="flex-1 relative h-full bg-[radial-gradient(#333_1px,transparent_1px)] [background-size:16px_16px] bg-neutral-900">
-        {activeTab === 'mockup' ? (
-          <MockupCanvas ref={mockupRef} mockupState={mockupState} setMockupState={setMockupState} />
-        ) : !appState.imageUrl ? (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-500 pointer-events-none">
-            <div className="w-24 h-24 mb-4 border-2 border-dashed border-neutral-700 rounded-xl flex items-center justify-center opacity-50">
-               <span className="text-4xl">🖼️</span>
-            </div>
-            <p className="text-lg font-medium">No Image Loaded</p>
-            <p className="text-sm opacity-60">Upload a PNG to start generating outlines.</p>
-          </div>
-        ) : (
-          <EditorCanvas 
-            ref={editorRef}
-            appState={appState} 
-            onPathChange={setSegmentCount}
-            onHistoryChange={onHistoryChange}
+        onTabChange={setActiveTab}
+        footer={activeTab === 'editor' || activeTab === 'underprint' ? EDITOR_TIPS : null}
+      >
+        {activeTab === 'editor' ? (
+          <>
+            {sourcePanel}
+            <CutlinePanel
+              params={cutParams}
+              onParamsChange={next => guardCut(() => setCutParams(next))}
+              geometry={cutGeometry}
+              dpi={dpi}
+              hasSource={Boolean(source)}
+              canUndo={cut.canUndo}
+              canRedo={cut.canRedo}
+              onUndo={() => cut.ref.current?.undo()}
+              onRedo={() => cut.ref.current?.redo()}
+              segmentCount={cut.segmentCount}
+              style={cutStyle}
+              onStyleChange={setCutStyle}
+              onExportAligned={() => exportCut('aligned')}
+              onExportTrimmed={() => exportCut('trimmed')}
+              onExportPdf={exportPdf}
+              onSendToImposition={sendToImposition}
+            />
+          </>
+        ) : null}
+        {activeTab === 'underprint' ? (
+          <>
+            {sourcePanel}
+            <UnderprintPanel
+              params={underParams}
+              onParamsChange={next => guardUnder(() => setUnderParams(next))}
+              geometry={underGeometry}
+              dpi={dpi}
+              hasSource={Boolean(source)}
+              canUndo={under.canUndo}
+              canRedo={under.canRedo}
+              onUndo={() => under.ref.current?.undo()}
+              onRedo={() => under.ref.current?.redo()}
+              segmentCount={under.segmentCount}
+              style={underStyle}
+              onStyleChange={setUnderStyle}
+              showCutReference={showCutReference}
+              onShowCutReferenceChange={setShowCutReference}
+              onExport={exportUnderprint}
+              onSendToImposition={sendToImposition}
+            />
+          </>
+        ) : null}
+        {activeTab === 'imposition' ? (
+          <ImpositionPanel
+            state={imposition.state}
+            update={imposition.update}
+            onUpload={uploadImposition}
+            onSetLayerTotalCount={imposition.setLayerTotalCount}
+            onAutoLayout={imposition.autoLayout}
+            onFitZoom={() => {
+              const z = impositionRef.current?.fitZoom();
+              if (z) imposition.update(s => ({ ...s, zoom: z }));
+            }}
+            onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers.svg')}
+            onExportCut={() => exportImposition(['cut'], 'imposition-cut.svg')}
+            onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint.svg')}
+            onExportPdf={() => {
+              impositionRef.current?.exportPDF().catch((err: unknown) => {
+                console.error('匯出 PDF 失敗', err);
+                window.alert('匯出 PDF 失敗，請再試一次。');
+              });
+            }}
           />
-        )}
+        ) : null}
+        {activeTab === 'settings' ? <SettingsPage /> : null}
+      </Sidebar>
+
+      <main className="flex-1 relative h-full bg-[radial-gradient(#333_1px,transparent_1px)] [background-size:16px_16px] bg-neutral-900">
+        {/* 分頁切換時不 unmount，保留 Paper 的編輯與歷史 */}
+        <div className="absolute inset-0" hidden={activeTab !== 'editor'}>
+          <GeometryView
+            source={source}
+            geometry={cutGeometry}
+            editorRef={cut.ref}
+            mode="stroke"
+            style={cutStyle}
+            smoothness={cutParams.smoothness}
+            active={activeTab === 'editor'}
+            testId="cut-canvas"
+            {...cut.callbacks}
+          />
+        </div>
+        <div className="absolute inset-0" hidden={activeTab !== 'underprint'}>
+          <GeometryView
+            source={source}
+            geometry={underGeometry}
+            editorRef={under.ref}
+            mode="fill"
+            style={underStyle}
+            smoothness={underParams.smoothness}
+            referencePaths={showCutReference ? cut.paths : undefined}
+            active={activeTab === 'underprint'}
+            testId="under-canvas"
+            {...under.callbacks}
+          />
+        </div>
+        <div className="absolute inset-0" hidden={activeTab !== 'imposition'}>
+          <ImpositionCanvas ref={impositionRef} state={imposition.state} update={imposition.update} colors={exportColors} />
+        </div>
+        {activeTab === 'settings' ? (
+          <div className="absolute inset-0 flex items-center justify-center text-neutral-500 text-sm pointer-events-none">
+            設定會自動儲存在這個瀏覽器。
+          </div>
+        ) : null}
+        <Toast message={notice} onDone={clearNotice} />
       </main>
+
+      <ConfirmDialog {...dialog} />
     </div>
   );
 };
