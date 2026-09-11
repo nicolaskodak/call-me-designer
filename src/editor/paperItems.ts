@@ -1,7 +1,8 @@
 import paper from 'paper';
 import type { CurveSet } from '../export/cutPdf';
-import type { Polygon, Ring } from '../geometry/types';
+import type { Point, Polygon, Ring } from '../geometry/types';
 import type { DisplayStyle, PathData } from '../types';
+import { splitRingIntoRuns } from './ringRuns';
 
 export const OUTLINES = 'outlines';
 export const RASTER = 'mainImage';
@@ -12,15 +13,40 @@ export type OutlineMode = 'stroke' | 'fill';
 const REFERENCE_COLOR = '#ef4444';
 const REFERENCE_DASH = [6, 4];
 
-const makePath = (scope: paper.PaperScope, ring: Ring, smoothness: number): paper.Path => {
-  const path = new scope.Path({
-    segments: ring.map(([x, y]) => new paper.Point(x, y)),
+const toPaperPoint = ([x, y]: Point): paper.Point => new paper.Point(x, y);
+
+/** 開放的點列擬合成貝茲曲線；只有兩點的段落是直線，直接用沒有把手的節點 */
+const fitRun = (scope: paper.PaperScope, run: readonly Point[], tolerance: number): paper.Segment[] => {
+  if (run.length === 2) return run.map(p => new paper.Segment(toPaperPoint(p)));
+  const path = new scope.Path({ segments: run.map(toPaperPoint), insert: false });
+  path.simplify(tolerance);
+  return path.segments;
+};
+
+/**
+ * 不能直接對封閉路徑 simplify：Paper 會在起點附近掉一段形狀，而且只檢查頂點上的誤差，
+ * 頂點很少的直邊（例如長方形的白墨）會被拉成往外鼓的弧線。
+ * 所以先切成開放的段落（見 splitRingIntoRuns），逐段擬合，再接回一條封閉路徑。
+ */
+const smoothRing = (scope: paper.PaperScope, ring: Ring, smoothness: number): paper.Segment[] | null => {
+  const runs = splitRingIntoRuns(ring, smoothness);
+  if (runs.length === 0) return null;
+  const fitted = runs.map(run => fitRun(scope, run, smoothness));
+  // 每段的最後一點就是下一段的第一點：合成一個節點，進把手來自前一段、出把手來自這一段。
+  // 中間的節點還屬於擬合用的暫時路徑；Paper 加進新路徑時會自動複製已經有路徑的節點。
+  return fitted.flatMap((segments, k) => {
+    const prev = fitted[(k - 1 + fitted.length) % fitted.length];
+    const joint = new paper.Segment(segments[0].point, prev[prev.length - 1].handleIn, segments[0].handleOut);
+    return [joint, ...segments.slice(1, -1)];
+  });
+};
+
+const makePath = (scope: paper.PaperScope, ring: Ring, smoothness: number): paper.Path =>
+  new scope.Path({
+    segments: (smoothness > 0 ? smoothRing(scope, ring, smoothness) : null) ?? ring.map(toPaperPoint),
     closed: true,
     insert: false,
   });
-  if (smoothness > 0) path.simplify(smoothness);
-  return path;
-};
 
 /** 刀模:每個外圈一條 Path;白墨:所有外圈與洞放進一個 evenodd CompoundPath */
 export function buildOutlineItem(

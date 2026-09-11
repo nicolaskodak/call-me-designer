@@ -18,6 +18,8 @@ export default defineConfig({
         'src/export/**/*.ts',
         'src/editor/pathHistory.ts',
         'src/editor/guardMessage.ts',
+        'src/editor/ringRuns.ts',
+        'src/editor/paperItems.ts',
         'src/utils/**/*.ts',
         'src/source/sourceModel.ts',
         'src/hooks/useSourceImage.ts',
