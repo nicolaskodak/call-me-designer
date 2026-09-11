@@ -63,9 +63,16 @@ export interface PathEditorHandle {
   getImage(): HTMLImageElement | null;
 }
 
-const fitView = (scope: paper.PaperScope, w: number, h: number): boolean => {
-  const { width, height } = scope.view.viewSize;
+/**
+ * 依容器的實際尺寸縮放到適合畫面。
+ * 分頁隱藏時容器是 0×0，Paper 會退回 canvas 預設的 300×150，所以不能用 view.viewSize 判斷；
+ * 容器還沒有尺寸時回傳 false，等 ResizeObserver 回報真實尺寸再縮放。
+ */
+const fitView = (scope: paper.PaperScope, container: HTMLElement | null, w: number, h: number): boolean => {
+  const width = container?.clientWidth ?? 0;
+  const height = container?.clientHeight ?? 0;
   if (width === 0 || height === 0) return false;
+  scope.view.viewSize = new paper.Size(width, height);
   scope.view.center = new paper.Point(w / 2, h / 2);
   scope.view.zoom = Math.min((width - FIT_PADDING) / w, (height - FIT_PADDING) / h, 1);
   return true;
@@ -165,7 +172,7 @@ const PathEditorCanvas = forwardRef<PathEditorHandle, PathEditorCanvasProps>((pr
       if (width === 0 || height === 0) return;
       scope.view.viewSize = new paper.Size(width, height);
       const pending = pendingFitRef.current;
-      if (pending && fitView(scope, pending.w, pending.h)) pendingFitRef.current = null;
+      if (pending && fitView(scope, container, pending.w, pending.h)) pendingFitRef.current = null;
     });
     observer.observe(container);
 
@@ -190,7 +197,7 @@ const PathEditorCanvas = forwardRef<PathEditorHandle, PathEditorCanvasProps>((pr
     raster.onLoad = () => {
       raster.position = new paper.Point(widthPx / 2, heightPx / 2);
       raster.sendToBack();
-      pendingFitRef.current = fitView(scope, widthPx, heightPx) ? null : { w: widthPx, h: heightPx };
+      pendingFitRef.current = fitView(scope, containerRef.current, widthPx, heightPx) ? null : { w: widthPx, h: heightPx };
     };
   }, [imageUrl, widthPx, heightPx]);
 

@@ -66,4 +66,8 @@ export const opaquePng = () =>
 export const cutoutPng = () =>
   makePng(200, 200, (x, y) => (inRect(x, y, 50, 50, 100, 100) ? RED : CLEAR));
 
-export const pngFile = (name: string, buffer: Buffer) => ({ name, mimeType: 'image/png', buffer });
+/** 400×400 圖中央一個半徑 150 的圓（圓心 200,200）；頂點很多，平滑後形狀仍貼近原圖 */
+export const singleDiscPng = () =>
+  makePng(400, 400, (x, y) => ((x + 0.5 - 200) ** 2 + (y + 0.5 - 200) ** 2 <= 150 * 150 ? RED : CLEAR));
+
+export const pngFile =(name: string, buffer: Buffer) => ({ name, mimeType: 'image/png', buffer });

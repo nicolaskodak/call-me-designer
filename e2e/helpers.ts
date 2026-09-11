@@ -31,9 +31,14 @@ export async function waitForCutline(page: Page, islands = '1'): Promise<void> {
  * 把圖片 px 座標換成畫面座標。
  * PathEditorCanvas 把圖片中心放在畫布中心，縮放為 min((寬−50)/圖寬, (高−50)/圖高, 1)。
  */
-export async function imageToScreen(page: Page, imageSize: { w: number; h: number }, point: { x: number; y: number }) {
-  const box = await page.getByTestId('cut-canvas').boundingBox();
-  if (!box) throw new Error('cut canvas not visible');
+export async function imageToScreen(
+  page: Page,
+  imageSize: { w: number; h: number },
+  point: { x: number; y: number },
+  canvasTestId = 'cut-canvas',
+) {
+  const box = await page.getByTestId(canvasTestId).boundingBox();
+  if (!box) throw new Error(`${canvasTestId} not visible`);
   const zoom = Math.min((box.width - 50) / imageSize.w, (box.height - 50) / imageSize.h, 1);
   return {
     x: box.x + box.width / 2 + (point.x - imageSize.w / 2) * zoom,
