@@ -6,8 +6,11 @@ export const CORNER_ANGLE_DEG = 60;
 export const SMOOTH_ANCHOR_COUNT = 4;
 /** 導引點離錨點的距離（px）：近到不影響形狀，只用來告訴擬合器切線方向 */
 export const TANGENT_GUIDE_PX = 0.05;
-/** 補點的最小間距（px）；平滑度較大時用平滑度當間距 */
-const MIN_SPACING_PX = 1;
+/**
+ * 補點的間距是容許誤差的兩倍，但至少這麼多（px）。
+ * 再密也不會更準，只會讓擬合變慢；再疏（四倍）像素圖類的白墨就會超出容許誤差。
+ */
+const MIN_SPACING_PX = 3;
 /** 估計切線時，錨點前後各取多遠（px）的點連成弦；至少要跨過幾個像素鋸齒 */
 const MIN_TANGENT_WINDOW_PX = 3;
 
@@ -108,7 +111,7 @@ const addTangentGuides = (runs: readonly Point[][], window: number): Point[][] =
 /**
  * 把封閉輪廓切成開放的段落，讓每段各自擬合成曲線，再接回一條封閉路徑。
  * 有尖角就在尖角切開，尖角保持銳利；沒有尖角就平均取幾個錨點，並在錨點旁加切線導引點。
- * 有三點以上的段落補點到間距不超過容許誤差，因為擬合只檢查拿到的點，長直邊中間沒有點就約束不到；
+ * 有三點以上的段落補點到間距不超過兩倍容許誤差，因為擬合只檢查拿到的點，長直邊中間沒有點就約束不到；
  * 兩個尖角之間只有兩點的段落就是直線，保持原樣。
  * 每段的最後一點就是下一段的第一點；最後一段回到第一段的起點。
  */
@@ -117,7 +120,7 @@ export function splitRingIntoRuns(ring: Ring, tolerancePx: number): Point[][] {
   if (clean.length < 3) return [];
   const corners = findCorners(clean);
   const anchors = corners.length > 0 ? corners : evenAnchors(clean.length);
-  const spacing = Math.max(MIN_SPACING_PX, tolerancePx);
+  const spacing = Math.max(MIN_SPACING_PX, 2 * tolerancePx);
   const runs = anchors
     .map((from, k) => walk(clean, from, anchors[(k + 1) % anchors.length]))
     .map(run => (run.length > 2 ? densify(run, spacing) : run));

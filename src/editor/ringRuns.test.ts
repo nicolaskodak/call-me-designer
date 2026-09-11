@@ -61,11 +61,16 @@ describe('splitRingIntoRuns', () => {
     expect(splitRingIntoRuns(square, 1)).toEqual(splitRingIntoRuns(square, 1000));
   });
 
-  it('adds points so no gap on a curved run is wider than the tolerance', () => {
-    for (const run of splitRingIntoRuns(circle(64), 3)) expect(maxGap(run)).toBeLessThanOrEqual(3);
-    const [firstRun] = splitRingIntoRuns(teardrop, 30);
-    expect(maxGap(firstRun)).toBeLessThanOrEqual(30);
-    expect(firstRun.length).toBeGreaterThan(teardrop.length + 1);
+  it('adds points every twice the tolerance along a curved run', () => {
+    const [run] = splitRingIntoRuns(teardrop, 5);
+    expect(maxGap(run)).toBeLessThanOrEqual(10);
+    // 尖端到圓弧起點的直邊約 147 px，每 10 px 以內一個點：切成 15 段
+    expect(run.indexOf(teardrop[1])).toBe(15);
+  });
+
+  it('spaces the added points at least 3 px apart for small tolerances', () => {
+    // 圓的每條弦約 9.8 px，間距 3 px 切成 4 段；16 條弦加終點，再加頭尾兩個導引點
+    expect(splitRingIntoRuns(circle(64), 0.5)[0]).toHaveLength(16 * 4 + 1 + 2);
   });
 
   it('splits a smooth ring at four evenly spaced anchors', () => {
