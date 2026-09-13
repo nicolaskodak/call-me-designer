@@ -4,6 +4,9 @@ import type { ImpositionInstance, ImpositionLayer, ImpositionState } from './typ
 
 export type IdFactory = () => string;
 
+/** 版面設定或圖層變動後，上次排圖的結果就過期了；擺位保持不動，等使用者自己決定要不要重排 */
+export const LAYOUT_STALE_MESSAGE = '圖層或設定有變動，請按「排圖」更新排版。';
+
 export function layerBoxMm(layer: ImpositionLayer, rotationDeg: 0 | 90): { w: number; h: number } {
   const w = pxToMm(layer.layoutBoxPx.width, layer.dpi);
   const h = pxToMm(layer.layoutBoxPx.height, layer.dpi);
@@ -19,7 +22,8 @@ export function addLayers(state: ImpositionState, layers: readonly ImpositionLay
     layers: [...state.layers, ...layers],
     instances: [...state.instances, ...layers.flatMap(l => instancesFor(l.id, Math.max(1, l.totalCount), newId))],
     notPlacedInstanceIds: [],
-    lastLayoutMessage: null,
+    // 新項目都疊在 (0,0)，提示使用者重新排圖
+    lastLayoutMessage: LAYOUT_STALE_MESSAGE,
   };
 }
 
@@ -31,7 +35,7 @@ export function upsertSourceLayer(state: ImpositionState, incoming: ImpositionLa
     layers: state.layers.map(l => (l.id === existing.id ? { ...incoming, id: existing.id, totalCount: existing.totalCount } : l)),
     // 外框可能改變，需要重新排圖
     notPlacedInstanceIds: [],
-    lastLayoutMessage: null,
+    lastLayoutMessage: LAYOUT_STALE_MESSAGE,
   };
 }
 
@@ -44,7 +48,7 @@ const removeInstances = (state: ImpositionState, ids: ReadonlySet<string>): Impo
 
 const removeLayer = (state: ImpositionState, layerId: string): ImpositionState => {
   const ids = new Set(state.instances.filter(i => i.layerId === layerId).map(i => i.id));
-  return { ...removeInstances(state, ids), layers: state.layers.filter(l => l.id !== layerId), lastLayoutMessage: null };
+  return { ...removeInstances(state, ids), layers: state.layers.filter(l => l.id !== layerId), lastLayoutMessage: LAYOUT_STALE_MESSAGE };
 };
 
 export function setLayerTotalCount(state: ImpositionState, layerId: string, totalCount: number, newId: IdFactory): ImpositionState {
@@ -55,13 +59,13 @@ export function setLayerTotalCount(state: ImpositionState, layerId: string, tota
   const layers = state.layers.map(l => (l.id === layerId ? { ...l, totalCount: total } : l));
   if (current.length > total) {
     const removed = new Set(current.slice(total).map(i => i.id));
-    return { ...removeInstances({ ...state, layers }, removed), lastLayoutMessage: null };
+    return { ...removeInstances({ ...state, layers }, removed), lastLayoutMessage: LAYOUT_STALE_MESSAGE };
   }
   return {
     ...state,
     layers,
     instances: [...state.instances, ...instancesFor(layerId, total - current.length, newId)],
-    lastLayoutMessage: null,
+    lastLayoutMessage: LAYOUT_STALE_MESSAGE,
   };
 }
 
@@ -121,5 +125,5 @@ export const setAllowRotate = (state: ImpositionState, allow: boolean): Impositi
   allowRotate90: allow,
   instances: allow ? state.instances : state.instances.map(i => ({ ...i, rotationDeg: 0 as const })),
   notPlacedInstanceIds: [],
-  lastLayoutMessage: null,
+  lastLayoutMessage: LAYOUT_STALE_MESSAGE,
 });

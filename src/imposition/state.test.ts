@@ -4,6 +4,7 @@ import {
   autoLayout,
   deleteInstance,
   layerBoxMm,
+  LAYOUT_STALE_MESSAGE,
   moveInstance,
   selectInstance,
   setAllowRotate,
@@ -148,5 +149,31 @@ describe('setAllowRotate', () => {
     expect(next.instances[0].rotationDeg).toBe(0);
     expect(next.notPlacedInstanceIds).toEqual([]);
     expect(setAllowRotate(rotated, true).instances[0].rotationDeg).toBe(90);
+  });
+});
+
+describe('需要重新排圖的提示', () => {
+  it('切換旋轉之後提示要重新排圖，位置維持不動', () => {
+    const laid = autoLayout(withLayer(layer({ totalCount: 2 })));
+    const toggled = setAllowRotate(laid, true);
+    expect(toggled.lastLayoutMessage).toBe(LAYOUT_STALE_MESSAGE);
+    expect(toggled.instances).toEqual(laid.instances);
+  });
+
+  it('加入圖層之後提示要重新排圖', () => {
+    const laid = autoLayout(withLayer());
+    const added = addLayers(laid, [layer({ id: 'L2' })], idGen());
+    expect(added.lastLayoutMessage).toBe(LAYOUT_STALE_MESSAGE);
+  });
+
+  it('改變份數之後提示要重新排圖', () => {
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer(), next));
+    expect(setLayerTotalCount(laid, 'L1', 3, next).lastLayoutMessage).toBe(LAYOUT_STALE_MESSAGE);
+  });
+
+  it('重新排圖之後換回完成訊息', () => {
+    const stale = setAllowRotate(autoLayout(withLayer()), true);
+    expect(autoLayout(stale).lastLayoutMessage).toContain('排圖完成');
   });
 });
