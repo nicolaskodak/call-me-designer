@@ -20,6 +20,7 @@ test('cut line, underprint and layered imposition export', async ({ page }) => {
   await page.getByTestId('send-to-imposition-under').click();
   await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
   await page.getByTestId('imposition-auto-layout').click();
+  await expect(page.getByTestId('imposition-sheet-count')).toHaveText('1');
 
   const layered = await downloadText(page, () => page.getByTestId('export-imposition-layers').click());
   for (const id of ['artwork', 'underprint', 'cut']) {

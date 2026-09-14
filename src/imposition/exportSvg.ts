@@ -13,12 +13,13 @@ export interface PlacedItem {
 const INKSCAPE_NS = 'http://www.inkscape.org/namespaces/inkscape';
 const f = formatNumber;
 
-export function placedItems(state: ImpositionState): PlacedItem[] {
+export function placedItems(state: ImpositionState, sheetId?: string): PlacedItem[] {
   const layers = new Map(state.layers.map(l => [l.id, l] as const));
-  const notPlaced = new Set(state.notPlacedInstanceIds);
   return state.instances.flatMap(instance => {
     const layer = layers.get(instance.layerId);
-    return layer && !notPlaced.has(instance.id) ? [{ layer, instance }] : [];
+    if (!layer || instance.sheetId === null) return [];
+    if (sheetId !== undefined && instance.sheetId !== sheetId) return [];
+    return [{ layer, instance }];
   });
 }
 

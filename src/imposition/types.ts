@@ -28,9 +28,20 @@ export interface ImpositionLayer {
   totalCount: number;
 }
 
+export interface ImpositionSheet {
+  id: string;
+  /** 來自哪個尺寸定義，供分頁標籤顯示 */
+  sizeName: string;
+  widthMm: number;
+  heightMm: number;
+}
+
 export interface ImpositionInstance {
   id: string;
   layerId: string;
+  /** null＝沒有任何啟用尺寸放得下 */
+  sheetId: string | null;
+  /** 所屬版面內的相對座標 */
   xMm: number;
   yMm: number;
   rotationDeg: 0 | 90;
@@ -43,30 +54,30 @@ export interface ImpositionShow {
 }
 
 export interface ImpositionState {
-  boundaryWidthMm: number;
-  boundaryHeightMm: number;
   minGapMm: number;
   allowRotate90: boolean;
   zoom: number;
   show: ImpositionShow;
   layers: ImpositionLayer[];
   instances: ImpositionInstance[];
+  sheets: ImpositionSheet[];
+  activeSheetId: string;
   selectedInstanceId: string | null;
-  notPlacedInstanceIds: string[];
   lastLayoutMessage: string | null;
 }
 
+const DEFAULT_SHEET: ImpositionSheet = { id: 'sheet-1', sizeName: 'A4', widthMm: 297, heightMm: 210 };
+
 export const DEFAULT_IMPOSITION_STATE: ImpositionState = {
-  boundaryWidthMm: 297,
-  boundaryHeightMm: 210,
   minGapMm: 3,
   allowRotate90: false,
   zoom: 1,
   show: { artwork: true, underprint: true, cut: true },
   layers: [],
   instances: [],
+  sheets: [DEFAULT_SHEET],
+  activeSheetId: DEFAULT_SHEET.id,
   selectedInstanceId: null,
-  notPlacedInstanceIds: [],
   lastLayoutMessage: null,
 };
 

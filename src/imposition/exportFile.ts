@@ -13,8 +13,9 @@ export async function downloadImpositionSvg(
   colors: { cut: string; underprint: string },
   filename: string,
 ): Promise<void> {
-  const items = placedItems(state);
-  if (items.length === 0) return;
+  const sheet = state.sheets.find(s => s.id === state.activeSheetId) ?? state.sheets[0];
+  const items = placedItems(state, sheet?.id);
+  if (!sheet || items.length === 0) return;
   const imageDataUrls = kinds.includes('artwork')
     ? new Map(
         await Promise.all(
@@ -23,8 +24,8 @@ export async function downloadImpositionSvg(
       )
     : new Map<string, string>();
   const svg = buildImpositionSvg({
-    widthMm: state.boundaryWidthMm,
-    heightMm: state.boundaryHeightMm,
+    widthMm: sheet.widthMm,
+    heightMm: sheet.heightMm,
     items,
     kinds,
     colors,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTypingTarget } from '../editor/keyboard';
 import { buildSourceLayer, pairUploadFiles, type SourceLayerInput } from '../imposition/layers';
 import { loadUploadedLayer } from '../imposition/loadUploadedLayer';
+import { DEFAULT_SHEET_SIZES } from '../imposition/sheetSizes';
 import { addLayers, autoLayout, deleteInstance, setLayerTotalCount, upsertSourceLayer } from '../imposition/state';
 import { DEFAULT_IMPOSITION_STATE, type ImpositionLayer, type ImpositionState } from '../imposition/types';
 import { newId } from '../utils/id';
@@ -71,7 +72,7 @@ export function useImposition(active: boolean, defaultDpi: number): ImpositionAp
     state,
     update,
     setLayerTotalCount: (layerId, total) => update(s => setLayerTotalCount(s, layerId, total, newId)),
-    autoLayout: () => update(autoLayout),
+    autoLayout: () => update(s => autoLayout(s, DEFAULT_SHEET_SIZES, newId)),
     uploadPairs,
     sendFromSource,
   };

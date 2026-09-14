@@ -20,7 +20,7 @@ const layer = (overrides: Partial<ImpositionLayer> = {}): ImpositionLayer => ({
 });
 
 const inst = (overrides: Partial<ImpositionInstance> = {}): ImpositionInstance => ({
-  id: 'i1', layerId: 'L1', xMm: 100, yMm: 50, rotationDeg: 0, ...overrides,
+  id: 'i1', layerId: 'L1', sheetId: 'sheet-1', xMm: 100, yMm: 50, rotationDeg: 0, ...overrides,
 });
 
 const colors = { cut: '#FF0000', underprint: '#FFFFFF' };
@@ -40,14 +40,26 @@ describe('instanceTransform', () => {
 });
 
 describe('placedItems', () => {
-  it('skips items that did not fit and instances without a layer', () => {
+  it('skips items with no sheet and instances without a layer', () => {
     const state = {
       ...DEFAULT_IMPOSITION_STATE,
       layers: [layer()],
-      instances: [inst({ id: 'a' }), inst({ id: 'b' }), inst({ id: 'c', layerId: 'missing' })],
-      notPlacedInstanceIds: ['b'],
+      instances: [inst({ id: 'a' }), inst({ id: 'b', sheetId: null }), inst({ id: 'c', layerId: 'missing' })],
     };
     expect(placedItems(state).map(p => p.instance.id)).toEqual(['a']);
+  });
+
+  it('filters to one sheet when asked', () => {
+    const state = {
+      ...DEFAULT_IMPOSITION_STATE,
+      layers: [layer()],
+      sheets: [
+        { id: 'sheet-1', sizeName: 'A4', widthMm: 297, heightMm: 210 },
+        { id: 'sheet-2', sizeName: 'A4', widthMm: 297, heightMm: 210 },
+      ],
+      instances: [inst({ id: 'a' }), inst({ id: 'b', sheetId: 'sheet-2' })],
+    };
+    expect(placedItems(state, 'sheet-2').map(p => p.instance.id)).toEqual(['b']);
   });
 });
 
