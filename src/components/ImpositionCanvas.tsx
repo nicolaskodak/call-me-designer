@@ -211,6 +211,7 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
       <div
         ref={viewportRef}
         {...dropProps}
+        data-testid="imposition-canvas-dropzone"
         data-drag-over={isOver ? 'true' : undefined}
         className={`relative flex-1 overflow-auto ${pan ? 'cursor-grabbing' : 'cursor-grab'} ${isOver ? 'ring-2 ring-inset ring-blue-500' : ''}`}
       >
