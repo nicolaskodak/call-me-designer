@@ -30,6 +30,43 @@ test('cut line, underprint and layered imposition export', async ({ page }) => {
   expect(layered).toContain('width="297mm" height="210mm"');
 });
 
+test('拖曳拼版項目會依滑鼠位移量精準移動', async ({ page }) => {
+  await page.goto('./');
+  await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
+  await waitForCutline(page, '1');
+  await page.getByTestId('tab-underprint').click();
+  await page.getByTestId('send-to-imposition-under').click();
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+  // 版面在 100% 縮放下比視窗還寬，置中的畫布會被視窗裁掉一截、點不到項目；
+  // 先「符合視窗」縮放，跟 underprint-fit.spec.ts 是同一個道理。
+  await page.getByTestId('imposition-fit').click();
+
+  const item = page.getByTestId('imposition-item').first();
+  await expect(item).toBeVisible();
+  const before = await item.boundingBox();
+  if (!before) throw new Error('imposition-item not visible');
+
+  const startX = before.x + before.width / 2;
+  const startY = before.y + before.height / 2;
+  const dx = 40;
+  const dy = 30;
+
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(startX + dx, startY + dy, { steps: 10 });
+  await page.mouse.up();
+
+  const after = await item.boundingBox();
+  if (!after) throw new Error('imposition-item not visible after drag');
+
+  // 斷言「最終位置 ≈ 初始位置 + 位移量」，而不只是「位置有改變」：
+  // 如果座標換算的原點錯了（例如 boundaryRef 指到外層容器），
+  // 項目會在按下瞬間先跳掉一段、再跟著滑鼠移動，「位置有改變」在那種情況下照樣會通過。
+  const TOLERANCE_PX = 2;
+  expect(Math.abs(after.x - (before.x + dx))).toBeLessThanOrEqual(TOLERANCE_PX);
+  expect(Math.abs(after.y - (before.y + dy))).toBeLessThanOrEqual(TOLERANCE_PX);
+});
+
 test('拖曳「圖＋SVG」配對到拼版頁會觸發上傳流程', async ({ page }) => {
   await page.goto('./');
   await page.getByTestId('tab-imposition').click();
