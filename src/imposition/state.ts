@@ -172,3 +172,15 @@ export function sheetUsage(state: ImpositionState, sheetId: string): number {
     }, 0);
   return used / (sheet.widthMm * sheet.heightMm);
 }
+
+export const toggleSheetSize = (state: ImpositionState, name: string): ImpositionState => ({
+  ...state,
+  disabledSizeNames: state.disabledSizeNames.includes(name)
+    ? state.disabledSizeNames.filter(n => n !== name)
+    : [...state.disabledSizeNames, name],
+  lastLayoutMessage: LAYOUT_STALE_MESSAGE,
+});
+
+/** 設定頁刪掉的尺寸會自然從結果消失，停用名單裡的殘留名稱不影響 */
+export const enabledSizes = (state: ImpositionState, all: readonly SheetSize[]): SheetSize[] =>
+  all.filter(s => !state.disabledSizeNames.includes(s.name));

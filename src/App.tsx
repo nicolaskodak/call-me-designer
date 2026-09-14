@@ -93,7 +93,7 @@ const App: React.FC = () => {
   const underGeometry = useGeometry(client, 'underprint', imageId, underParamsPx);
   const under = useEditorSlot();
 
-  const imposition = useImposition(activeTab === 'imposition', settings.defaultDpi);
+  const imposition = useImposition(activeTab === 'imposition', settings.defaultDpi, settings.sheetSizes);
   const [notice, setNotice] = useState<string | null>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
   const impositionRef = useRef<ImpositionCanvasHandle>(null);
@@ -271,6 +271,7 @@ const App: React.FC = () => {
           <ImpositionPanel
             state={imposition.state}
             update={imposition.update}
+            sheetSizes={settings.sheetSizes}
             onUpload={uploadImposition}
             onSetLayerTotalCount={imposition.setLayerTotalCount}
             onAutoLayout={imposition.autoLayout}
