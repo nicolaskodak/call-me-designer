@@ -64,6 +64,8 @@ export interface ImpositionState {
   activeSheetId: string;
   selectedInstanceId: string | null;
   lastLayoutMessage: string | null;
+  /** 這次排圖不使用的尺寸名稱；空陣列＝全部啟用 */
+  disabledSizeNames: string[];
 }
 
 const DEFAULT_SHEET: ImpositionSheet = { id: 'sheet-1', sizeName: 'A4', widthMm: 297, heightMm: 210 };
@@ -79,6 +81,7 @@ export const DEFAULT_IMPOSITION_STATE: ImpositionState = {
   activeSheetId: DEFAULT_SHEET.id,
   selectedInstanceId: null,
   lastLayoutMessage: null,
+  disabledSizeNames: [],
 };
 
 export const ZOOM_OPTIONS: readonly number[] = [0.25, 0.5, 1, 2, 4];

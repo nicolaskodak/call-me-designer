@@ -3,14 +3,17 @@ import {
   addLayers,
   autoLayout,
   deleteInstance,
+  enabledSizes,
   layerBoxMm,
   LAYOUT_STALE_MESSAGE,
   moveInstance,
+  NO_ENABLED_SIZE_MESSAGE,
   selectInstance,
   selectSheet,
   setAllowRotate,
   setLayerTotalCount,
   sheetUsage,
+  toggleSheetSize,
   upsertSourceLayer,
 } from './state';
 import { DEFAULT_IMPOSITION_STATE, type ImpositionLayer, type ImpositionState } from './types';
@@ -156,7 +159,7 @@ describe('autoLayout', () => {
     const s = withLayer();
     const laid = autoLayout(s, [], idGen());
     expect(laid.instances).toEqual(s.instances);
-    expect(laid.lastLayoutMessage).toBe('請先勾選至少一種版面尺寸。');
+    expect(laid.lastLayoutMessage).toBe(NO_ENABLED_SIZE_MESSAGE);
   });
 
   it('不允許旋轉時清掉既有的旋轉', () => {
@@ -307,5 +310,31 @@ describe('需要重新排圖的提示', () => {
     const next = idGen();
     const stale = setAllowRotate(autoLayout(withLayer(layer(), next), SIZES, next), true);
     expect(autoLayout(stale, SIZES, next).lastLayoutMessage).toContain('排圖完成');
+  });
+});
+
+describe('尺寸勾選', () => {
+  const ALL = [
+    { name: 'A4', widthMm: 297, heightMm: 210 },
+    { name: 'A3', widthMm: 420, heightMm: 297 },
+  ];
+
+  it('預設全部啟用', () => {
+    expect(enabledSizes(DEFAULT_IMPOSITION_STATE, ALL)).toEqual(ALL);
+  });
+
+  it('切換會停用再啟用', () => {
+    const off = toggleSheetSize(DEFAULT_IMPOSITION_STATE, 'A3');
+    expect(enabledSizes(off, ALL).map(s => s.name)).toEqual(['A4']);
+    expect(enabledSizes(toggleSheetSize(off, 'A3'), ALL)).toEqual(ALL);
+  });
+
+  it('切換會提示需要重新排圖', () => {
+    expect(toggleSheetSize(DEFAULT_IMPOSITION_STATE, 'A3').lastLayoutMessage).toBe(LAYOUT_STALE_MESSAGE);
+  });
+
+  it('停用清單裡不存在的名稱不影響結果', () => {
+    const state = { ...DEFAULT_IMPOSITION_STATE, disabledSizeNames: ['已刪除的尺寸'] };
+    expect(enabledSizes(state, ALL)).toEqual(ALL);
   });
 });

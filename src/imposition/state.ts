@@ -8,6 +8,9 @@ export type IdFactory = () => string;
 /** 版面設定或圖層變動後，上次排圖的結果就過期了；擺位保持不動，等使用者自己決定要不要重排 */
 export const LAYOUT_STALE_MESSAGE = '圖層或設定有變動，請按「排圖」更新排版。';
 
+/** 版面尺寸清單非空、但全部被停用時，排圖按鈕會停用；這句話同時是按鈕停用當下的訊息，也是面板上的提示文字 */
+export const NO_ENABLED_SIZE_MESSAGE = '請先勾選至少一種版面尺寸。';
+
 export function layerBoxMm(layer: ImpositionLayer, rotationDeg: 0 | 90): { w: number; h: number } {
   const w = pxToMm(layer.layoutBoxPx.width, layer.dpi);
   const h = pxToMm(layer.layoutBoxPx.height, layer.dpi);
@@ -97,7 +100,7 @@ export function deleteInstance(state: ImpositionState, instanceId: string): Impo
 }
 
 export function autoLayout(state: ImpositionState, sizes: readonly SheetSize[], newId: IdFactory): ImpositionState {
-  if (sizes.length === 0) return { ...state, lastLayoutMessage: '請先勾選至少一種版面尺寸。' };
+  if (sizes.length === 0) return { ...state, lastLayoutMessage: NO_ENABLED_SIZE_MESSAGE };
 
   const base = state.allowRotate90 ? state.instances : state.instances.map(i => ({ ...i, rotationDeg: 0 as const }));
   const layerMap = new Map(state.layers.map(l => [l.id, l] as const));
@@ -172,3 +175,19 @@ export function sheetUsage(state: ImpositionState, sheetId: string): number {
     }, 0);
   return used / (sheet.widthMm * sheet.heightMm);
 }
+
+export const toggleSheetSize = (state: ImpositionState, name: string): ImpositionState => ({
+  ...state,
+  disabledSizeNames: state.disabledSizeNames.includes(name)
+    ? state.disabledSizeNames.filter(n => n !== name)
+    : [...state.disabledSizeNames, name],
+  lastLayoutMessage: LAYOUT_STALE_MESSAGE,
+});
+
+/**
+ * 設定頁刪掉的尺寸會自然從結果消失；殘留在停用名單裡的名稱，只要沒有被重用就不影響。
+ * 名稱一旦被重用（例如刪掉「新尺寸」後再新增一個同樣叫「新尺寸」的尺寸），
+ * 就會沿用舊尺寸留下的停用狀態——這是刻意的解耦（設定層不知道拼版層的停用狀態），不在本次修正範圍。
+ */
+export const enabledSizes = (state: ImpositionState, all: readonly SheetSize[]): SheetSize[] =>
+  all.filter(s => !state.disabledSizeNames.includes(s.name));

@@ -46,6 +46,15 @@ describe('saveSettings', () => {
     expect(saveSettings(null, DEFAULT_SETTINGS)).toBe(false);
     expect(saveSettings(throwing, DEFAULT_SETTINGS)).toBe(false);
   });
+
+  it('rejects invalid settings and does not overwrite what is already stored', () => {
+    const validPrior = { ...DEFAULT_SETTINGS, defaultDpi: 600 };
+    const store = memory({ [SETTINGS_STORAGE_KEY]: JSON.stringify(validPrior) });
+    const invalid = { ...DEFAULT_SETTINGS, sheetSizes: [{ name: '', widthMm: 0, heightMm: 80 }] };
+
+    expect(saveSettings(store, invalid)).toBe(false);
+    expect(JSON.parse(store.data[SETTINGS_STORAGE_KEY])).toEqual(validPrior);
+  });
 });
 
 describe('getBrowserStorage', () => {

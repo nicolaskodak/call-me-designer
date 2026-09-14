@@ -2,8 +2,9 @@ import { Download, FileText, Upload } from 'lucide-react';
 import React from 'react';
 import { useFileDrop } from '../../hooks/useFileDrop';
 import { placedItems } from '../../imposition/exportSvg';
+import type { SheetSize } from '../../imposition/sheetSizes';
 import { MAX_SHEETS } from '../../imposition/sheets';
-import { layerBoxMm, setAllowRotate } from '../../imposition/state';
+import { layerBoxMm, NO_ENABLED_SIZE_MESSAGE, setAllowRotate, toggleSheetSize } from '../../imposition/state';
 import { ZOOM_OPTIONS, type ImpositionShow, type ImpositionState } from '../../imposition/types';
 import { formatMm } from '../../units';
 import { ActionButton, InfoRow, Section, SelectField, ToggleField, Warnings } from './fields';
@@ -11,6 +12,7 @@ import { ActionButton, InfoRow, Section, SelectField, ToggleField, Warnings } fr
 interface ImpositionPanelProps {
   state: ImpositionState;
   update: (fn: (s: ImpositionState) => ImpositionState) => void;
+  sheetSizes: readonly SheetSize[];
   onUpload: (files: File[]) => void;
   onSetLayerTotalCount: (layerId: string, total: number) => void;
   onAutoLayout: () => void;
@@ -116,6 +118,9 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   const hasUnderprint = state.layers.some(l => l.underprint);
   const zoomOptions = zoomOptionsFor(state.zoom);
   const notPlacedCount = state.instances.filter(i => i.sheetId === null).length;
+  // 排圖按鈕的停用條件之一：清單裡的尺寸全部被停用（清單本身是空的時候，這裡的 every 會是 vacuously true，
+  // 交由下面的 disabled 判斷一起處理；面板提示則只在「清單非空、但全部被停用」時顯示，見下方用法）
+  const allSizesDisabled = props.sheetSizes.every(s => state.disabledSizeNames.includes(s.name));
   // 按鈕要反映「目前這張版面有沒有東西可匯出」，所以只算當前版面，
   // 與 exportFile.ts 匯出時呼叫 placedItems(state, sheet.id) 用同一個判準
   const placedCount = placedItems(state, state.activeSheetId).length;
@@ -131,6 +136,24 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
     <>
       <UploadBox onUpload={props.onUpload} />
       <Section title="版面">
+        <div className="space-y-1" data-testid="sheet-size-list">
+          <span className="text-xs text-neutral-400">可用版面尺寸</span>
+          {props.sheetSizes.length === 0 ? (
+            <p className="text-[10px] text-neutral-500">設定頁還沒有任何版面尺寸。</p>
+          ) : (
+            props.sheetSizes.map(size => (
+              <React.Fragment key={size.name}>
+                <ToggleField
+                  label={`${size.name}（${formatMm(size.widthMm)} × ${formatMm(size.heightMm)}）`}
+                  checked={!state.disabledSizeNames.includes(size.name)}
+                  testId={`sheet-size-${size.name}`}
+                  onChange={() => update(s => toggleSheetSize(s, size.name))}
+                />
+              </React.Fragment>
+            ))
+          )}
+          <p className="text-[10px] text-neutral-500">在「設定」分頁新增或刪除尺寸。</p>
+        </div>
         <MmInput label="最小間距（mm）" value={state.minGapMm} min={0} onChange={v => update(s => ({ ...s, minGapMm: v }))} />
         <ToggleField label="允許 90° 旋轉" checked={state.allowRotate90} onChange={v => update(s => setAllowRotate(s, v))} />
         <SelectField label="縮放" value={String(state.zoom)} options={zoomOptions} onChange={v => update(s => ({ ...s, zoom: Number(v) }))} />
@@ -147,7 +170,14 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
         <InfoRow label="圖層" value={state.layers.length} testId="imposition-layer-count" />
         <InfoRow label="項目" value={state.instances.length} />
         <InfoRow label="版面" value={state.sheets.length} testId="imposition-sheet-count" />
-        <ActionButton onClick={props.onAutoLayout} disabled={state.instances.length === 0} testId="imposition-auto-layout">排圖</ActionButton>
+        <ActionButton
+          onClick={props.onAutoLayout}
+          disabled={state.instances.length === 0 || allSizesDisabled}
+          testId="imposition-auto-layout"
+        >排圖</ActionButton>
+        {props.sheetSizes.length > 0 && allSizesDisabled ? (
+          <p className="text-[10px] text-amber-300" data-testid="imposition-no-enabled-size">{NO_ENABLED_SIZE_MESSAGE}</p>
+        ) : null}
         <Warnings messages={notPlacedWarnings} />
         {state.lastLayoutMessage ? (
           <div className="p-2 rounded bg-neutral-900 border border-neutral-700 text-[10px] text-neutral-300">{state.lastLayoutMessage}</div>

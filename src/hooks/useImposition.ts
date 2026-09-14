@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTypingTarget } from '../editor/keyboard';
 import { buildSourceLayer, pairUploadFiles, type SourceLayerInput } from '../imposition/layers';
 import { loadUploadedLayer } from '../imposition/loadUploadedLayer';
-import { DEFAULT_SHEET_SIZES } from '../imposition/sheetSizes';
-import { addLayers, autoLayout, deleteInstance, setLayerTotalCount, upsertSourceLayer } from '../imposition/state';
+import type { SheetSize } from '../imposition/sheetSizes';
+import { addLayers, autoLayout, deleteInstance, enabledSizes, setLayerTotalCount, upsertSourceLayer } from '../imposition/state';
 import { DEFAULT_IMPOSITION_STATE, type ImpositionLayer, type ImpositionState } from '../imposition/types';
 import { newId } from '../utils/id';
 
@@ -29,7 +29,7 @@ function useRevokeRemovedLayers(layers: readonly ImpositionLayer[]): void {
   useEffect(() => () => previous.current.forEach(l => URL.revokeObjectURL(l.imageUrl)), []);
 }
 
-export function useImposition(active: boolean, defaultDpi: number): ImpositionApi {
+export function useImposition(active: boolean, defaultDpi: number, sheetSizes: readonly SheetSize[]): ImpositionApi {
   const [state, setState] = useState<ImpositionState>(DEFAULT_IMPOSITION_STATE);
   const update = useCallback((fn: (s: ImpositionState) => ImpositionState) => setState(fn), []);
   useRevokeRemovedLayers(state.layers);
@@ -72,7 +72,7 @@ export function useImposition(active: boolean, defaultDpi: number): ImpositionAp
     state,
     update,
     setLayerTotalCount: (layerId, total) => update(s => setLayerTotalCount(s, layerId, total, newId)),
-    autoLayout: () => update(s => autoLayout(s, DEFAULT_SHEET_SIZES, newId)),
+    autoLayout: () => update(s => autoLayout(s, enabledSizes(s, sheetSizes), newId)),
     uploadPairs,
     sendFromSource,
   };
