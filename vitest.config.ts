@@ -23,6 +23,7 @@ export default defineConfig({
         'src/utils/**/*.ts',
         'src/source/sourceModel.ts',
         'src/hooks/useSourceImage.ts',
+        'src/hooks/useFileDrop.ts',
       ],
       exclude: [
         '**/*.test.ts',
