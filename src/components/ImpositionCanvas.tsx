@@ -7,8 +7,11 @@ import { CSS_PX_PER_MM, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
 import { SheetTabs } from './SheetTabs';
 
+/** 'skipped'：被重入防護擋下，或當下沒有可匯出的版面，什麼都沒做——呼叫端不能把它當成「已匯出」來宣告成功 */
+export type ExportPdfResult = 'exported' | 'skipped';
+
 export interface ImpositionCanvasHandle {
-  exportPDF(onProgress?: (done: number, total: number) => void): Promise<void>;
+  exportPDF(onProgress?: (done: number, total: number) => void): Promise<ExportPdfResult>;
   /** 讓整個版面剛好放進目前的視窗；還沒掛上 DOM 時回傳 null */
   fitZoom(): number | null;
 }
@@ -247,11 +250,14 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
     exportPDF: async (onProgress?: (done: number, total: number) => void) => {
       // 重入防護：正在匯出時再次呼叫直接不做事，避免兩個呼叫共用同一份 stageRefs／stage
       // ——先跑完的那個在 finally 清空暫存區，會讓還在跑的那個拿不到元素而悄悄漏頁。
-      if (exportingRef.current) return;
+      // 回傳 'skipped' 而不是直接 resolve：呼叫端必須能分辨「這次真的匯出了」與
+      // 「這次被擋下、什麼都沒做」，否則被擋下的呼叫會提早宣告成功、提早清掉
+      // 「匯出中」的旗標，讓使用者在真正的匯出還沒完成時就以為結束了。
+      if (exportingRef.current) return 'skipped';
       exportingRef.current = true;
       try {
         const sheets = sheetsWithContent(state);
-        if (sheets.length === 0) return;
+        if (sheets.length === 0) return 'skipped';
         // 在按下的當下把要匯出的內容整包凍結成快照，避免匯出途中使用者的操作
         // （拖曳、刪除、切換顯示、重新排圖、改色）讓還沒截圖的版面讀到不一致的資料
         const snapshot: StageSnapshot = {
@@ -272,6 +278,7 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
             onProgress?.(index + 1, snapshot.sheets.length);
           }
           if (pages.length > 0) await buildSheetsPdf(pages);
+          return 'exported';
         } finally {
           setStage(null);
           stageRefs.current.clear();

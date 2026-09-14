@@ -259,6 +259,31 @@ test('連續快速點兩次「PDF 預覽」只會產生一次下載', async ({ p
     el?.click();
   });
 
+  // 在整個匯出還在跑（畫面外暫存區還沒消失）的期間持續輪詢：只要抓到一次
+  // 「暫存區還在、按鈕卻不是 disabled」，就代表被重入防護擋下的那次呼叫
+  // 提早把 isPdfExporting 清成 false，讓使用者在匯出途中就能再按一次
+  // ——即使輸出本身沒有錯，這也是對使用者宣稱了一件還沒發生的事。
+  // 兩個值一定要在同一次 page.evaluate() 裡一起讀出來：分成兩次個別的
+  // page.getByTestId(...).count() / .isDisabled() 呼叫會各自是一趟獨立的
+  // CDP 往返，兩者之間應用程式可能剛好完成一次 React 重新渲染，讀到的會是
+  // 「暫存區」與「按鈕狀態」分屬兩個不同時間點的 DOM 快照，測出不存在的假警報。
+  // 迴圈本身不加任何人工等待，純粹以「每次往返查詢」的自然節奏取樣，
+  // 不為了讓斷言好過而延長或縮短任何等待時間；整體受 Playwright 的測試逾時保護。
+  let buttonWasEnabledWhileStageExists = false;
+  for (;;) {
+    const { stagePresent, disabled } = await page.evaluate(() => {
+      const stage = document.querySelector('[data-testid="pdf-export-stage"]');
+      const btn = document.querySelector('[data-testid="export-imposition-pdf"]') as HTMLButtonElement | null;
+      return { stagePresent: stage !== null, disabled: btn ? btn.disabled : true };
+    });
+    if (!stagePresent) break;
+    if (!disabled) {
+      buttonWasEnabledWhileStageExists = true;
+      break;
+    }
+  }
+  expect(buttonWasEnabledWhileStageExists).toBe(false);
+
   // 等匯出真的跑完（暫存區消失）再收斂下載事件
   await expect(page.getByTestId('pdf-export-stage')).toHaveCount(0, { timeout: 15_000 });
   expect(downloads).toEqual(['imposition-layout.pdf']);

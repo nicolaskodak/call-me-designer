@@ -290,12 +290,22 @@ const App: React.FC = () => {
               setIsPdfExporting(true);
               impositionRef.current
                 ?.exportPDF((done, total) => setNotice(`正在產生 PDF：${done} / ${total} 頁`))
-                .then(() => setNotice('PDF 已匯出'))
+                .then(result => {
+                  // 'skipped'：這次呼叫被重入防護擋下（或當下沒有可匯出的版面），什麼都沒做——
+                  // 不能顯示「PDF 已匯出」，也不能清 isPdfExporting，那個旗標屬於還在跑的那次呼叫，
+                  // 該由它自己的 'exported' 分支清除，否則使用者會在真正的匯出還沒完成時就以為結束了，
+                  // 而且按鈕會提早解除停用。
+                  if (result === 'exported') {
+                    setNotice('PDF 已匯出');
+                    setIsPdfExporting(false);
+                  }
+                })
                 .catch((err: unknown) => {
                   console.error('匯出 PDF 失敗', err);
                   window.alert('匯出 PDF 失敗，請再試一次。');
-                })
-                .finally(() => setIsPdfExporting(false));
+                  // 失敗一定要清旗標，否則按鈕會永遠停用
+                  setIsPdfExporting(false);
+                });
             }}
           />
         ) : null}
