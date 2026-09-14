@@ -1,7 +1,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useFileDrop } from '../hooks/useFileDrop';
 import { layerBoxMm, moveInstance, selectInstance, selectSheet, sheetUsage } from '../imposition/state';
-import type { ImpositionInstance, ImpositionLayer, ImpositionShow, ImpositionState } from '../imposition/types';
+import type { ImpositionInstance, ImpositionLayer, ImpositionShow, ImpositionSheet, ImpositionState } from '../imposition/types';
 import { computeFitZoom } from '../imposition/zoom';
 import { CSS_PX_PER_MM, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
@@ -88,7 +88,7 @@ interface ItemProps {
   selected: boolean;
   show: ImpositionShow;
   colors: Colors;
-  onMouseDown: (e: React.MouseEvent, instance: ImpositionInstance) => void;
+  onMouseDown?: (e: React.MouseEvent, instance: ImpositionInstance) => void;
 }
 
 function ImpositionItem({ layer, instance, k, selected, show, colors, onMouseDown }: ItemProps) {
@@ -98,7 +98,7 @@ function ImpositionItem({ layer, instance, k, selected, show, colors, onMouseDow
     <div
       className={`absolute cursor-move overflow-hidden ${selected ? 'ring-2 ring-blue-500' : ''}`}
       style={{ left: instance.xMm * k, top: instance.yMm * k, width: w * k, height: h * k }}
-      onMouseDown={e => onMouseDown(e, instance)}
+      onMouseDown={onMouseDown ? e => onMouseDown(e, instance) : undefined}
       role="button"
       aria-label={`Imposition item ${layer.name}`}
       data-testid="imposition-item"
@@ -109,6 +109,49 @@ function ImpositionItem({ layer, instance, k, selected, show, colors, onMouseDow
       >
         <ItemContent layer={layer} show={show} colors={colors} />
       </div>
+    </div>
+  );
+}
+
+interface SheetBoardProps {
+  sheet: ImpositionSheet;
+  instances: readonly ImpositionInstance[];
+  layerById: ReadonlyMap<string, ImpositionLayer>;
+  k: number;
+  show: ImpositionShow;
+  colors: Colors;
+  selectedInstanceId?: string | null;
+  onItemMouseDown?: (e: React.MouseEvent, instance: ImpositionInstance) => void;
+  onMouseDown?: (e: React.MouseEvent) => void;
+  boardRef?: (el: HTMLDivElement | null) => void;
+}
+
+/** 一張版面的內容。實況畫布與 PDF 暫存區共用，兩邊必須畫出一樣的東西 */
+function SheetBoard(props: SheetBoardProps) {
+  const { sheet, instances, layerById, k, show, colors } = props;
+  return (
+    <div
+      ref={props.boardRef}
+      className="relative shrink-0 border-2 border-dashed border-neutral-700 rounded-lg overflow-hidden bg-neutral-900/20"
+      style={{ width: sheet.widthMm * k, height: sheet.heightMm * k }}
+      onMouseDown={props.onMouseDown}
+    >
+      {instances.map(instance => {
+        const layer = layerById.get(instance.layerId);
+        return layer ? (
+          <React.Fragment key={instance.id}>
+            <ImpositionItem
+              layer={layer}
+              instance={instance}
+              k={k}
+              selected={props.selectedInstanceId === instance.id}
+              show={show}
+              colors={colors}
+              onMouseDown={props.onItemMouseDown}
+            />
+          </React.Fragment>
+        ) : null;
+      })}
     </div>
   );
 }
@@ -215,36 +258,25 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
         data-drag-over={isOver ? 'true' : undefined}
         className={`relative flex-1 overflow-auto ${pan ? 'cursor-grabbing' : 'cursor-grab'} ${isOver ? 'ring-2 ring-inset ring-blue-500' : ''}`}
       >
-        <div className="min-w-full min-h-full flex items-center justify-center p-6">
-          <div
-            ref={boundaryRef}
-            className="relative shrink-0 border-2 border-dashed border-neutral-700 rounded-lg overflow-hidden bg-neutral-900/20"
-            style={{ width: sheet.widthMm * k, height: sheet.heightMm * k }}
+        <div className="min-w-full min-h-full flex flex-col items-center justify-center gap-3 p-6">
+          {state.instances.length === 0 ? (
+            <div className="flex flex-col items-center text-neutral-500 pointer-events-none">
+              <p className="text-lg font-medium">尚無排版項目</p>
+              <p className="text-sm opacity-60">從 Editor／Underprint 送過來，或拖曳「圖＋SVG」配對進來。</p>
+            </div>
+          ) : null}
+          <SheetBoard
+            sheet={sheet}
+            instances={visible}
+            layerById={layerById}
+            k={k}
+            show={state.show}
+            colors={colors}
+            selectedInstanceId={state.selectedInstanceId}
+            onItemMouseDown={onItemMouseDown}
             onMouseDown={onBoundaryMouseDown}
-          >
-            {state.instances.length === 0 ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-500 pointer-events-none">
-                <p className="text-lg font-medium">尚無排版項目</p>
-                <p className="text-sm opacity-60">從 Editor／Underprint 送過來，或拖曳「圖＋SVG」配對進來。</p>
-              </div>
-            ) : null}
-            {visible.map(instance => {
-              const layer = layerById.get(instance.layerId);
-              return layer ? (
-                <React.Fragment key={instance.id}>
-                  <ImpositionItem
-                    layer={layer}
-                    instance={instance}
-                    k={k}
-                    selected={state.selectedInstanceId === instance.id}
-                    show={state.show}
-                    colors={colors}
-                    onMouseDown={onItemMouseDown}
-                  />
-                </React.Fragment>
-              ) : null;
-            })}
-          </div>
+            boardRef={el => { boundaryRef.current = el; }}
+          />
         </div>
       </div>
     </div>
