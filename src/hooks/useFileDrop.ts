@@ -42,6 +42,8 @@ export function useFileDrop(onFiles: (files: File[]) => void): FileDropResult {
     e.preventDefault();
     depth.current = 0;
     setIsOver(false);
+    // 專案沒裝 @types/react，DragEvent 實質是 any，Array.from(any) 會被推導成
+    // unknown[]；這個斷言是必要的，移除會讓 typecheck 報 TS2345。
     const files = Array.from(e.dataTransfer?.files ?? []) as File[];
     if (files.length > 0) onFiles(files);
   }, [onFiles]);
@@ -52,7 +54,7 @@ export function useFileDrop(onFiles: (files: File[]) => void): FileDropResult {
 /** 擋掉「拖到非投放區時瀏覽器直接開檔」的預設行為 */
 export function useBlockWindowFileDrop(): void {
   useEffect(() => {
-    const block = (e: DragEvent) => e.preventDefault();
+    const block = (e: Event) => e.preventDefault();
     window.addEventListener('dragover', block);
     window.addEventListener('drop', block);
     return () => {

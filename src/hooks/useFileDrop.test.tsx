@@ -80,4 +80,19 @@ describe('useBlockWindowFileDrop', () => {
     act(() => window.dispatchEvent(dragoverEventAfter));
     expect(dragoverEventAfter.defaultPrevented).toBe(false);
   });
+
+  it('掛上事件監聽器，drop 事件會被阻止；卸載後監聽器移除', () => {
+    const { unmount } = renderHook(() => useBlockWindowFileDrop());
+
+    // 掛載時，drop 事件應被阻止，瀏覽器才不會直接開檔
+    const dropEvent = new Event('drop', { cancelable: true });
+    act(() => window.dispatchEvent(dropEvent));
+    expect(dropEvent.defaultPrevented).toBe(true);
+
+    // 卸載後，drop 事件不再被阻止
+    unmount();
+    const dropEventAfter = new Event('drop', { cancelable: true });
+    act(() => window.dispatchEvent(dropEventAfter));
+    expect(dropEventAfter.defaultPrevented).toBe(false);
+  });
 });
