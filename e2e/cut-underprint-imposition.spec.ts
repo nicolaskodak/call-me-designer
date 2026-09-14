@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { pngFile, twoSquaresPng } from './fixtures';
-import { downloadText, waitForCutline } from './helpers';
+import { downloadAll, downloadText, waitForCutline } from './helpers';
 
 test('cut line, underprint and layered imposition export', async ({ page }) => {
   await page.goto('./');
@@ -129,4 +129,13 @@ test('版面塞不下時自動開新版面，項目不重複也不遺漏', async
     total += await page.getByTestId('imposition-item').count();
   }
   expect(total).toBe(COPIES);
+
+  // 多版面匯出：每張版面各出一個 SVG 檔，檔名依序編號、彼此不重複
+  const files = await downloadAll(page, () => page.getByTestId('export-imposition-layers').click(), sheetCount);
+  expect(files).toHaveLength(sheetCount);
+  const filenames = files.map(f => f.filename);
+  expect(new Set(filenames).size).toBe(sheetCount);
+  for (const name of filenames) {
+    expect(name).toMatch(/^imposition-layers-\d+\.svg$/);
+  }
 });
