@@ -133,10 +133,6 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
     <>
       <UploadBox onUpload={props.onUpload} />
       <Section title="版面">
-        <MmInput label="最小間距（mm）" value={state.minGapMm} min={0} onChange={v => update(s => ({ ...s, minGapMm: v }))} />
-        <ToggleField label="允許 90° 旋轉" checked={state.allowRotate90} onChange={v => update(s => setAllowRotate(s, v))} />
-        <SelectField label="縮放" value={String(state.zoom)} options={zoomOptions} onChange={v => update(s => ({ ...s, zoom: Number(v) }))} />
-        <ActionButton onClick={props.onFitZoom} testId="imposition-fit">符合視窗</ActionButton>
         <div className="space-y-1" data-testid="sheet-size-list">
           <span className="text-xs text-neutral-400">可用版面尺寸</span>
           {props.sheetSizes.length === 0 ? (
@@ -155,6 +151,10 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
           )}
           <p className="text-[10px] text-neutral-500">在「設定」分頁新增或刪除尺寸。</p>
         </div>
+        <MmInput label="最小間距（mm）" value={state.minGapMm} min={0} onChange={v => update(s => ({ ...s, minGapMm: v }))} />
+        <ToggleField label="允許 90° 旋轉" checked={state.allowRotate90} onChange={v => update(s => setAllowRotate(s, v))} />
+        <SelectField label="縮放" value={String(state.zoom)} options={zoomOptions} onChange={v => update(s => ({ ...s, zoom: Number(v) }))} />
+        <ActionButton onClick={props.onFitZoom} testId="imposition-fit">符合視窗</ActionButton>
       </Section>
       <Section title="顯示">
         {SHOW_LABELS.map(([key, label]) => (
