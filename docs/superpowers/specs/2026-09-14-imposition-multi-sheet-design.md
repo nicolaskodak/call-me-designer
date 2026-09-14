@@ -187,7 +187,7 @@ sheetSizes: z.array(sheetSizeSchema).default(DEFAULT_SHEET_SIZES)
 - 畫布既有的拖曳移動是滑鼠事件（`mousedown` / `mousemove`），與 HTML5 檔案拖放是不同事件族，不會互相干擾。
 - 目前 App 根層沒有阻止瀏覽器預設開檔行為，拖到非投放區會被瀏覽器接管——一併處理。
 
-`layers.ts` 的 `isSvgFile` / `isImageFile` 目前是模組私有，拖放時要即時判斷「這批檔案收不收」需要匯出它們。
+實作沒有對拖放的檔案做前置篩選，`isSvgFile` / `isImageFile` 維持模組私有、不匯出；「這批檔案收不收」沿用既有 `uploadPairs` 的略過清單來判斷（見 §8 表格）。
 
 ## 8. 錯誤處理與邊界情況
 

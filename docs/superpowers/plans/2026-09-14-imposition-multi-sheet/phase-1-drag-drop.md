@@ -322,7 +322,9 @@ import { useBlockWindowFileDrop } from './hooks/useFileDrop';
 - [ ] **Step 4: 驗證**
 
 Run: `npm run typecheck && npm test && npm run build`
-Expected: 全部通過。typecheck 會抓出漏傳 `onDropFiles` 的地方。
+Expected: 全部通過。
+
+**注意：typecheck 不會抓出漏傳 `onDropFiles` 的地方。** 這個專案沒有安裝 `@types/react`，`import { type DragEvent } from 'react'` 會靜默變成 `any`，JSX 的 props 因此完全不受型別檢查——就算把 `onDropFiles` 整個刪掉，或傳成 `42`，`npm run typecheck` 一樣會通過。這條路徑要靠 Task 3 的測試把關，不能指望型別系統。
 
 - [ ] **Step 5: 手動確認**
 
