@@ -87,3 +87,46 @@ test('拖曳「圖＋SVG」配對到拼版畫布會觸發上傳流程', async ({
 
   await expect(dropzone).not.toHaveAttribute('data-drag-over', 'true');
 });
+
+const DEFAULT_SIZE_NAMES = ['A4', 'A3', 'SRA3', 'A3+', '菊八開', '菊四開', '菊對開'];
+const COPIES = 5;
+
+test('版面塞不下時自動開新版面，項目不重複也不遺漏', async ({ page }) => {
+  await page.goto('./');
+  await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
+  await waitForCutline(page, '1');
+  await page.getByTestId('tab-underprint').click();
+  await page.getByTestId('send-to-imposition-under').click();
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+
+  // 加一個小到每張只放得下一個的尺寸；新增的那一列固定排在最後
+  await page.getByTestId('tab-settings').click();
+  await page.getByTestId('settings-add-sheet-size').click();
+  const last = DEFAULT_SIZE_NAMES.length;
+  await page.getByTestId(`sheet-size-name-${last}`).fill('測試小版');
+  await page.getByTestId(`sheet-size-width-${last}`).fill('45');
+  await page.getByTestId(`sheet-size-height-${last}`).fill('28');
+
+  // 回拼版頁，只留小尺寸可用
+  await page.getByTestId('tab-imposition').click();
+  for (const name of DEFAULT_SIZE_NAMES) {
+    await page.getByTestId(`sheet-size-${name}`).uncheck();
+  }
+
+  await page.getByTitle('設為 0 會刪除該圖層').fill(String(COPIES));
+  await page.getByTestId('imposition-auto-layout').click();
+
+  // 必須真的開出多張版面
+  await expect(page.getByTestId('imposition-sheet-count')).not.toHaveText('1');
+  await expect(page.getByTestId('sheet-tabs')).toBeVisible();
+
+  // 逐頁加總畫布上的項目：重複排入會 > COPIES，遺漏會 < COPIES
+  const sheetCount = Number(await page.getByTestId('imposition-sheet-count').textContent());
+  let total = 0;
+  for (let i = 1; i <= sheetCount; i += 1) {
+    await page.getByTestId(`sheet-tab-${i}`).click();
+    await expect(page.getByTestId(`sheet-tab-${i}`)).toHaveAttribute('aria-current', 'page');
+    total += await page.getByTestId('imposition-item').count();
+  }
+  expect(total).toBe(COPIES);
+});
