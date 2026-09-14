@@ -60,8 +60,12 @@ test('拖曳拼版項目會依滑鼠位移量精準移動', async ({ page }) => 
   if (!after) throw new Error('imposition-item not visible after drag');
 
   // 斷言「最終位置 ≈ 初始位置 + 位移量」，而不只是「位置有改變」：
-  // 如果座標換算的原點錯了（例如 boundaryRef 指到外層容器），
-  // 項目會在按下瞬間先跳掉一段、再跟著滑鼠移動，「位置有改變」在那種情況下照樣會通過。
+  // 後者連項目瞬間跳到畫面其他地方都會放過，抓不到任何錯誤的位移量。
+  // 這條斷言守住的是拖曳有沒有真的接上、以及像素↔mm 的換算比例（k）對不對——
+  // 比例錯了（實測把 k 換成 k*2）這條斷言會失敗。
+  // 它守不住座標原點的常數偏移：原點偏移量在「放開時的 pointerMm − 按下時的 pointerMm」
+  // 這個相減裡會抵消，因此不影響位移量的計算結果（實測把換算原點固定加 50px 偏移，
+  // 這條斷言仍會通過）——這也代表這類常數偏移原本就不影響拖曳位移。
   const TOLERANCE_PX = 2;
   expect(Math.abs(after.x - (before.x + dx))).toBeLessThanOrEqual(TOLERANCE_PX);
   expect(Math.abs(after.y - (before.y + dy))).toBeLessThanOrEqual(TOLERANCE_PX);
