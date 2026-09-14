@@ -28,3 +28,27 @@ test('cut line, underprint and layered imposition export', async ({ page }) => {
   expect(layered).toContain('data:image/png;base64,');
   expect(layered).toContain('width="297mm" height="210mm"');
 });
+
+test('拖曳「圖＋SVG」配對到拼版頁會觸發上傳流程', async ({ page }) => {
+  // 這裡刻意用壞掉的 PNG，載入一定會失敗並跳出 alert，必須先攔下來
+  page.on('dialog', d => void d.dismiss());
+  await page.goto('./');
+  await page.getByTestId('tab-imposition').click();
+
+  const dropzone = page.getByTestId('imposition-dropzone');
+  const dataTransfer = await page.evaluateHandle(() => {
+    const dt = new DataTransfer();
+    const png = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'dropped.png', { type: 'image/png' });
+    const svg = new File(['<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10"/></svg>'], 'dropped.svg', { type: 'image/svg+xml' });
+    dt.items.add(png);
+    dt.items.add(svg);
+    return dt;
+  });
+
+  await dropzone.dispatchEvent('dragenter', { dataTransfer });
+  await expect(dropzone).toHaveAttribute('data-drag-over', 'true');
+  await dropzone.dispatchEvent('drop', { dataTransfer });
+
+  // PNG 是刻意造的壞檔，載入會失敗；這裡只驗證 drop 有把檔案送進處理流程
+  await expect(dropzone).not.toHaveAttribute('data-drag-over', 'true');
+});
