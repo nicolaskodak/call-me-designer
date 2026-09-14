@@ -22,6 +22,8 @@ interface ImpositionPanelProps {
   onExportPdf: () => void;
   /** PDF 匯出進行中；只用來停用「PDF 預覽」按鈕，不影響其他三個 SVG 匯出按鈕 */
   isPdfExporting: boolean;
+  /** 三個 SVG 匯出按鈕共用同一個「匯出中」旗標；不影響 PDF 按鈕 */
+  isSvgExporting: boolean;
 }
 
 const SHOW_LABELS: readonly [keyof ImpositionShow, string][] = [
@@ -185,13 +187,13 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
         ) : null}
       </Section>
       <Section title="匯出">
-        <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!hasExportableItems} testId="export-imposition-layers">
+        <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-layers">
           <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模，每張版面一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportCut} disabled={!hasExportableItems} testId="export-imposition-cut">
+        <ActionButton onClick={props.onExportCut} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-cut">
           <Download className="w-3 h-3" /> 只有刀模 SVG（每張版面一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportUnderprint} disabled={!hasExportableItems || !hasUnderprint} testId="export-imposition-underprint">
+        <ActionButton onClick={props.onExportUnderprint} disabled={!hasExportableItems || !hasUnderprint || props.isSvgExporting} testId="export-imposition-underprint">
           <Download className="w-3 h-3" /> 只有白墨 SVG（每張版面一檔）
         </ActionButton>
         <ActionButton onClick={props.onExportPdf} disabled={!hasExportableItems || props.isPdfExporting} testId="export-imposition-pdf">

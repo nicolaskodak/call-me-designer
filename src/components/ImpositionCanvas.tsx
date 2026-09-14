@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useFileDrop } from '../hooks/useFileDrop';
 import { layerBoxMm, moveInstance, selectInstance, selectSheet, sheetsWithContent, sheetUsage } from '../imposition/state';
 import type { ImpositionInstance, ImpositionLayer, ImpositionShow, ImpositionSheet, ImpositionState } from '../imposition/types';
@@ -291,7 +292,12 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
             pages.push({ dataUrl: await captureSheet(el, s.widthMm), widthMm: s.widthMm, heightMm: s.heightMm });
             onProgress?.(index + 1, snapshot.sheets.length);
           }
-          if (pages.length > 0) await buildSheetsPdf(pages);
+          // 走到這裡 snapshot.sheets.length 必然 > 0（前面已經 return 'nothing-to-export'），
+          // 迴圈裡缺 el 也一律 throw，所以 pages.length 必然等於版面數：這個檢查理論上
+          // 不會成立。但如果這個推論未來被打破，寧可明確拋錯，也不要悄悄跳過
+          // buildSheetsPdf 卻仍然 return 'exported'——那正是「沒存檔卻回報成功」。
+          if (pages.length === 0) throw new Error('沒有任何版面成功截圖，無法產生 PDF');
+          await buildSheetsPdf(pages);
           return 'exported';
         } finally {
           setStage(null);
@@ -361,26 +367,35 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
           />
         </div>
       </div>
-      {stage ? (
-        <div className="fixed top-0 pointer-events-none" style={{ left: -100000 }} aria-hidden data-testid="pdf-export-stage">
-          {stage.sheets.map(({ sheet, instances }) => (
-            <React.Fragment key={sheet.id}>
-              <SheetBoard
-                sheet={sheet}
-                instances={instances}
-                layerById={stage.layerById}
-                k={CSS_PX_PER_MM}
-                show={stage.show}
-                colors={stage.colors}
-                boardRef={el => {
-                  if (el) stageRefs.current.set(sheet.id, el);
-                  else stageRefs.current.delete(sheet.id);
-                }}
-              />
-            </React.Fragment>
-          ))}
-        </div>
-      ) : null}
+      {stage
+        ? createPortal(
+            // `position: fixed` 沒辦法脫離祖先的 `display: none`——三個分頁都是用 `hidden`
+            // 隱藏而非卸載（見 App.tsx），匯出途中如果使用者切到別的分頁，這個容器所在的
+            // 祖先會被 `[hidden] { display: none !important; }` 整棵蓋掉，還沒截圖的版面
+            // `offsetWidth` 會變 0，觸發 captureSheet 的防護而讓整次匯出失敗、已截好的頁全部
+            // 作廢。用 createPortal 掛到 document.body，讓暫存區脫離那個祖先，匯出才不會
+            // 受分頁切換影響。
+            <div className="fixed top-0 pointer-events-none" style={{ left: -100000 }} aria-hidden data-testid="pdf-export-stage">
+              {stage.sheets.map(({ sheet, instances }) => (
+                <React.Fragment key={sheet.id}>
+                  <SheetBoard
+                    sheet={sheet}
+                    instances={instances}
+                    layerById={stage.layerById}
+                    k={CSS_PX_PER_MM}
+                    show={stage.show}
+                    colors={stage.colors}
+                    boardRef={el => {
+                      if (el) stageRefs.current.set(sheet.id, el);
+                      else stageRefs.current.delete(sheet.id);
+                    }}
+                  />
+                </React.Fragment>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 });

@@ -270,6 +270,10 @@ test('連續快速點兩次「PDF 預覽」只會產生一次下載', async ({ p
   // 迴圈本身不加任何人工等待，純粹以「每次往返查詢」的自然節奏取樣，
   // 不為了讓斷言好過而延長或縮短任何等待時間；整體受 Playwright 的測試逾時保護。
   let buttonWasEnabledWhileStageExists = false;
+  // 迴圈至少要真的觀測到一次「暫存區存在」，否則上面那條斷言在什麼都沒看到的情況下
+  // 也會通過——換一台更快的機器、或把 fixture 縮小到暫存區一瞬間就消失，這條測試會
+  // 安靜退化成 no-op，卻還是顯示綠燈。
+  let sawStagePresent = false;
   for (;;) {
     const { stagePresent, disabled } = await page.evaluate(() => {
       const stage = document.querySelector('[data-testid="pdf-export-stage"]');
@@ -277,14 +281,59 @@ test('連續快速點兩次「PDF 預覽」只會產生一次下載', async ({ p
       return { stagePresent: stage !== null, disabled: btn ? btn.disabled : true };
     });
     if (!stagePresent) break;
+    sawStagePresent = true;
     if (!disabled) {
       buttonWasEnabledWhileStageExists = true;
       break;
     }
   }
+  expect(sawStagePresent).toBe(true);
   expect(buttonWasEnabledWhileStageExists).toBe(false);
 
   // 等匯出真的跑完（暫存區消失）再收斂下載事件
   await expect(page.getByTestId('pdf-export-stage')).toHaveCount(0, { timeout: 15_000 });
   expect(downloads).toEqual(['imposition-layout.pdf']);
+});
+
+test('匯出 PDF 途中切換分頁，匯出仍會完成', async ({ page }) => {
+  await page.goto('./');
+  await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
+  await waitForCutline(page, '1');
+  await page.getByTestId('tab-underprint').click();
+  await page.getByTestId('send-to-imposition-under').click();
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+
+  // 同樣先讓一次排版產生多張版面：版面數夠多才有機會讓切換分頁真的落在
+  // 匯出還沒結束的時間窗內
+  await page.getByTestId('tab-settings').click();
+  await page.getByTestId('settings-add-sheet-size').click();
+  const last = DEFAULT_SIZE_NAMES.length;
+  await page.getByTestId(`sheet-size-name-${last}`).fill('測試小版切分頁');
+  await page.getByTestId(`sheet-size-width-${last}`).fill('45');
+  await page.getByTestId(`sheet-size-height-${last}`).fill('28');
+
+  await page.getByTestId('tab-imposition').click();
+  for (const name of DEFAULT_SIZE_NAMES) {
+    await page.getByTestId(`sheet-size-${name}`).uncheck();
+  }
+  await page.getByTitle('設為 0 會刪除該圖層').fill(String(COPIES));
+  await page.getByTestId('imposition-auto-layout').click();
+  await expect(page.getByTestId('imposition-sheet-count')).not.toHaveText('1');
+
+  // 三個分頁都是用 `hidden` 隱藏、不是卸載，畫面外暫存區若沒有脫離那個祖先，
+  // 匯出途中切走分頁會讓暫存區整棵 display:none、offsetWidth 變 0，
+  // 觸發 captureSheet 的防護把整次匯出判定失敗，已截好的頁全部作廢。
+  // 這裡刻意在按下匯出後立刻切分頁，逼出匯出還在跑的那個時間窗。
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 10_000 }),
+    (async () => {
+      await page.getByTestId('export-imposition-pdf').click();
+      await page.getByTestId('tab-editor').click();
+    })(),
+  ]);
+  expect(download.suggestedFilename()).toBe('imposition-layout.pdf');
+
+  // 切走分頁之後，拼版分頁的容器（含未脫離出去的東西）會是 display:none，
+  // 但暫存區已經 portal 到 document.body，匯出結束後仍然要正常清掉
+  await expect(page.getByTestId('pdf-export-stage')).toHaveCount(0, { timeout: 15_000 });
 });

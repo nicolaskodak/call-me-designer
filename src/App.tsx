@@ -98,6 +98,9 @@ const App: React.FC = () => {
   const clearNotice = useCallback(() => setNotice(null), []);
   const impositionRef = useRef<ImpositionCanvasHandle>(null);
   const [isPdfExporting, setIsPdfExporting] = useState(false);
+  const [isSvgExporting, setIsSvgExporting] = useState(false);
+  /** 三個 SVG 匯出按鈕共用同一個重入防護：同時只該有一組 SVG 匯出在跑 */
+  const svgExportingRef = useRef(false);
   const { guard, dialog } = useRegenerateGuard();
 
   // 確認後立刻清掉 dirty，避免拖拉桿時重複詢問
@@ -177,11 +180,27 @@ const App: React.FC = () => {
   };
 
   const exportImposition = (kinds: readonly ImpositionLayerKind[], baseName: string) => {
+    // 重入防護：連點兩次任一顆 SVG 匯出按鈕，兩個迴圈交錯送出下載會讓檔名重複、
+    // 數量對不上「已匯出 N 個」的宣稱——三個按鈕共用同一個旗標，因為同時只該有
+    // 一組 SVG 匯出在跑。用 ref 同步檢查，button 的 disabled 只是第二層防線
+    // （React 重新渲染前的空窗期擋不住連點）。
+    if (svgExportingRef.current) return;
+    svgExportingRef.current = true;
+    setIsSvgExporting(true);
     downloadImpositionSvg(imposition.state, kinds, exportColors, baseName)
-      .then(count => setNotice(count > 1 ? `已匯出 ${count} 個 SVG 檔（每張版面一檔）` : '已匯出 SVG'))
+      .then(count => {
+        // count === 0：目前沒有任何可匯出的版面（與 PDF 側的 'nothing-to-export' 是
+        // 同一個邊緣情況），不能顯示「已匯出」——使用者會以為拿到了檔案，其實一個都沒有。
+        if (count === 0) return;
+        setNotice(count > 1 ? `已匯出 ${count} 個 SVG 檔（每張版面一檔）` : '已匯出 SVG');
+      })
       .catch((err: unknown) => {
         console.error('匯出 Imposition SVG 失敗', err);
         window.alert('匯出 SVG 失敗，請再試一次。');
+      })
+      .finally(() => {
+        svgExportingRef.current = false;
+        setIsSvgExporting(false);
       });
   };
 
@@ -285,6 +304,7 @@ const App: React.FC = () => {
             onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers')}
             onExportCut={() => exportImposition(['cut'], 'imposition-cut')}
             onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint')}
+            isSvgExporting={isSvgExporting}
             isPdfExporting={isPdfExporting}
             onExportPdf={() => {
               setIsPdfExporting(true);
