@@ -185,6 +185,24 @@ describe('autoLayout', () => {
     expect(relaid.instances.every(i => i.sheetId === null)).toBe(true);
     expect(relaid.activeSheetId).toBe(relaid.sheets[0].id);
   });
+
+  it('切到非第一張版面後才重排到全部放不下，activeSheetId 仍必須指向現存的版面', () => {
+    const next = idGen();
+    const big = layer({ layoutBoxPx: { x: 0, y: 0, width: 260, height: 190 } });
+    const s = setLayerTotalCount(withLayer(big, next), 'L1', 3, next);
+    const laid = autoLayout(s, [{ name: 'A4', widthMm: 297, heightMm: 210 }], next);
+    expect(laid.sheets.length).toBeGreaterThan(1);
+
+    // 切到第二張版面，模擬使用者排圖完先瀏覽了其他分頁
+    const switched = selectSheet(laid, laid.sheets[1].id);
+    expect(switched.activeSheetId).toBe(laid.sheets[1].id);
+
+    // 間距調到誇張大，讓所有項目都放不下任何版面；只有第一張版面會被保留
+    const relaid = autoLayout({ ...switched, minGapMm: 1000 }, [{ name: 'A4', widthMm: 297, heightMm: 210 }], next);
+    expect(relaid.sheets).toHaveLength(1);
+    expect(relaid.activeSheetId).toBe(relaid.sheets[0].id);
+    expect(relaid.sheets.some(sheet => sheet.id === relaid.activeSheetId)).toBe(true);
+  });
 });
 
 describe('selectSheet', () => {

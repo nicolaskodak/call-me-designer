@@ -123,12 +123,15 @@ export function autoLayout(state: ImpositionState, sizes: readonly SheetSize[], 
   const placedCount = instances.length - result.notPlaced.length;
   const notPlacedNote = result.notPlaced.length > 0 ? `，放不下 ${result.notPlaced.length} 個` : '';
   const rotateNote = state.allowRotate90 ? '（允許 90° 旋轉）' : '';
+  // 排不出任何版面時（例如全部項目都放不下），保留一張舊版面，畫布才不會空白；
+  // 與 pruneEmptySheets「至少保留一張」的既有不變式一致
+  const nextSheets = sheets.length > 0 ? sheets : state.sheets.slice(0, 1);
   return {
     ...state,
-    // 排不出任何版面時（例如全部項目都放不下），保留一張舊版面，畫布才不會空白；
-    // 與 pruneEmptySheets「至少保留一張」的既有不變式一致
-    sheets: sheets.length > 0 ? sheets : state.sheets.slice(0, 1),
-    activeSheetId: sheets[0]?.id ?? state.activeSheetId,
+    sheets: nextSheets,
+    // 一定要從 nextSheets（實際回傳的版面清單）取值，不能沿用舊的 activeSheetId：
+    // 排圖前選到的版面可能不是保留下來的那一張，沿用會指向一張已經不存在的版面
+    activeSheetId: nextSheets[0]?.id ?? state.activeSheetId,
     instances,
     lastLayoutMessage: `排圖完成：${sheets.length} 個版面，排入 ${placedCount} 個${notPlacedNote}。${rotateNote}`,
   };
