@@ -4,7 +4,7 @@ import { useFileDrop } from '../../hooks/useFileDrop';
 import { layerBoxMm, setAllowRotate } from '../../imposition/state';
 import { ZOOM_OPTIONS, type ImpositionShow, type ImpositionState } from '../../imposition/types';
 import { formatMm } from '../../units';
-import { ActionButton, InfoRow, Section, SelectField, ToggleField } from './fields';
+import { ActionButton, InfoRow, Section, SelectField, ToggleField, Warnings } from './fields';
 
 interface ImpositionPanelProps {
   state: ImpositionState;
@@ -114,15 +114,15 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   const placedCount = state.instances.length - state.notPlacedInstanceIds.length;
   const hasUnderprint = state.layers.some(l => l.underprint);
   const zoomOptions = zoomOptionsFor(state.zoom);
+  const notPlacedCount = state.instances.filter(i => i.sheetId === null).length;
+  const notPlacedWarnings = notPlacedCount > 0
+    ? [`有 ${notPlacedCount} 個項目比所有可用的版面尺寸都大，沒有排入任何版面。`]
+    : [];
 
   return (
     <>
       <UploadBox onUpload={props.onUpload} />
       <Section title="版面">
-        <div className="grid grid-cols-2 gap-3">
-          <MmInput label="寬（mm）" value={state.boundaryWidthMm} min={10} onChange={v => update(s => ({ ...s, boundaryWidthMm: v }))} />
-          <MmInput label="高（mm）" value={state.boundaryHeightMm} min={10} onChange={v => update(s => ({ ...s, boundaryHeightMm: v }))} />
-        </div>
         <MmInput label="最小間距（mm）" value={state.minGapMm} min={0} onChange={v => update(s => ({ ...s, minGapMm: v }))} />
         <ToggleField label="允許 90° 旋轉" checked={state.allowRotate90} onChange={v => update(s => setAllowRotate(s, v))} />
         <SelectField label="縮放" value={String(state.zoom)} options={zoomOptions} onChange={v => update(s => ({ ...s, zoom: Number(v) }))} />
@@ -138,7 +138,9 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
       <Section title="排圖">
         <InfoRow label="圖層" value={state.layers.length} testId="imposition-layer-count" />
         <InfoRow label="項目" value={state.instances.length} />
+        <InfoRow label="版面" value={state.sheets.length} testId="imposition-sheet-count" />
         <ActionButton onClick={props.onAutoLayout} disabled={state.instances.length === 0} testId="imposition-auto-layout">排圖</ActionButton>
+        <Warnings messages={notPlacedWarnings} />
         {state.lastLayoutMessage ? (
           <div className="p-2 rounded bg-neutral-900 border border-neutral-700 text-[10px] text-neutral-300">{state.lastLayoutMessage}</div>
         ) : null}
