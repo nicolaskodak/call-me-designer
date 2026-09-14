@@ -30,8 +30,6 @@ test('cut line, underprint and layered imposition export', async ({ page }) => {
 });
 
 test('拖曳「圖＋SVG」配對到拼版頁會觸發上傳流程', async ({ page }) => {
-  // 這裡刻意用壞掉的 PNG，載入一定會失敗並跳出 alert，必須先攔下來
-  page.on('dialog', d => void d.dismiss());
   await page.goto('./');
   await page.getByTestId('tab-imposition').click();
 
@@ -47,8 +45,15 @@ test('拖曳「圖＋SVG」配對到拼版頁會觸發上傳流程', async ({ pa
 
   await dropzone.dispatchEvent('dragenter', { dataTransfer });
   await expect(dropzone).toHaveAttribute('data-drag-over', 'true');
-  await dropzone.dispatchEvent('drop', { dataTransfer });
 
-  // PNG 是刻意造的壞檔，載入會失敗；這裡只驗證 drop 有把檔案送進處理流程
+  // 這裡刻意用壞掉的 PNG，配對成功後 loadUploadedLayer 載入一定會失敗並跳出 alert；
+  // 主動等待對話框並驗證內容含有這組檔名（skipped 用的是不含副檔名的 stem），
+  // 才能證明 drop 真的把檔案送進了 uploadPairs 上傳流程，而不只是切換了 hover 狀態
+  const dialogPromise = page.waitForEvent('dialog');
+  await dropzone.dispatchEvent('drop', { dataTransfer });
+  const dialog = await dialogPromise;
+  expect(dialog.message()).toContain('dropped');
+  await dialog.dismiss();
+
   await expect(dropzone).not.toHaveAttribute('data-drag-over', 'true');
 });
