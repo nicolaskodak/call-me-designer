@@ -2,14 +2,10 @@ import { Eye, EyeOff, PlugZap, Plus, Trash2 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { DEFAULT_SHEET_SIZES, type SheetSize } from '../../imposition/sheetSizes';
 import { createRemoveBgClient, RemoveBgError } from '../../services/removeBg';
-import { REMOVE_BG_SIZES, type RemoveBgSize } from '../../settings/schema';
+import { REMOVE_BG_SIZES, SHEET_NAME_MAX_LENGTH, SHEET_SIDE_MAX_MM, type RemoveBgSize } from '../../settings/schema';
 import { useSettings } from '../../settings/SettingsContext';
 import { DPI_MAX, DPI_MIN, isValidDpi } from '../../units';
 import { ActionButton, Section, SelectField, Warnings } from './fields';
-
-/** 與 src/settings/schema.ts 的 sheetSizeSchema 邊界一致，維持 UI 端 draft 驗證與儲存層驗證同步。 */
-const SHEET_NAME_MAX_LENGTH = 20;
-const SHEET_SIDE_MAX_MM = 2000;
 
 const SIZE_LABELS: Record<RemoveBgSize, string> = {
   auto: 'auto（依點數自動選最高解析度）',
@@ -59,22 +55,28 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
   );
 }
 
-function SheetSizeRow({ size, index, onChange, onDelete }: {
+function SheetSizeRow({ size, index, isNameTaken, onChange, onDelete }: {
   size: SheetSize;
   index: number;
+  /** 判斷 trim 後的名稱是否與「其他」列衝突（不含自己）。 */
+  isNameTaken: (trimmedName: string) => boolean;
   onChange: (next: SheetSize) => void;
   onDelete: () => void;
 }) {
   const [nameDraft, setNameDraft] = useState(size.name);
   const [widthDraft, setWidthDraft] = useState(String(size.widthMm));
   const [heightDraft, setHeightDraft] = useState(String(size.heightMm));
+  // 清單的每一種變動（刪除／新增／還原預設）都只能由點擊 ActionButton／刪除鈕發起，
+  // 而點擊會先讓聚焦中的輸入框 blur、觸發下面的 commit*，草稿才會被寫回 settings。
+  // 所以這裡用 props 覆寫本地草稿是安全的；若未來出現非點擊發起的清單變動，需重新檢視這個假設。
   useEffect(() => setNameDraft(size.name), [size.name]);
   useEffect(() => setWidthDraft(String(size.widthMm)), [size.widthMm]);
   useEffect(() => setHeightDraft(String(size.heightMm)), [size.heightMm]);
 
   const commitName = () => {
     const trimmed = nameDraft.trim();
-    if (trimmed.length >= 1 && trimmed.length <= SHEET_NAME_MAX_LENGTH) onChange({ ...size, name: trimmed });
+    const valid = trimmed.length >= 1 && trimmed.length <= SHEET_NAME_MAX_LENGTH && !isNameTaken(trimmed);
+    if (valid) onChange({ ...size, name: trimmed });
     else setNameDraft(size.name);
   };
   const commitWidth = () => {
@@ -135,6 +137,15 @@ function SheetSizeRow({ size, index, onChange, onDelete }: {
   );
 }
 
+/** 「新增尺寸」的預設名稱要避開既有名稱，否則會跟 toggleSheetSize／enabledSizes（以名稱為鍵）撞在一起。 */
+function uniqueNewSheetSizeName(existingNames: readonly string[]): string {
+  const base = '新尺寸';
+  if (!existingNames.includes(base)) return base;
+  let n = 2;
+  while (existingNames.includes(`${base} ${n}`)) n += 1;
+  return `${base} ${n}`;
+}
+
 function SheetSizesSection() {
   const { settings, update } = useSettings();
   const setSizes = (sizes: SheetSize[]) => update(s => ({ ...s, sheetSizes: sizes }));
@@ -148,6 +159,7 @@ function SheetSizesSection() {
             <SheetSizeRow
               index={index}
               size={size}
+              isNameTaken={trimmedName => settings.sheetSizes.some((s, i) => i !== index && s.name === trimmedName)}
               onChange={next => setSizes(settings.sheetSizes.map((s, i) => (i === index ? next : s)))}
               onDelete={() => setSizes(settings.sheetSizes.filter((_, i) => i !== index))}
             />
@@ -155,7 +167,10 @@ function SheetSizesSection() {
         ))}
       </div>
       <ActionButton
-        onClick={() => setSizes([...settings.sheetSizes, { name: '新尺寸', widthMm: 300, heightMm: 200 }])}
+        onClick={() => {
+          const name = uniqueNewSheetSizeName(settings.sheetSizes.map(s => s.name));
+          setSizes([...settings.sheetSizes, { name, widthMm: 300, heightMm: 200 }]);
+        }}
         testId="settings-add-sheet-size"
       >
         <Plus className="w-3 h-3" /> 新增尺寸

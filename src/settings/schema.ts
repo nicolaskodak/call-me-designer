@@ -8,8 +8,8 @@ export type RemoveBgSize = (typeof REMOVE_BG_SIZES)[number];
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const API_KEY_MAX_LENGTH = 200;
 
-const SHEET_NAME_MAX_LENGTH = 20;
-const SHEET_SIDE_MAX_MM = 2000;
+export const SHEET_NAME_MAX_LENGTH = 20;
+export const SHEET_SIDE_MAX_MM = 2000;
 
 const sheetSizeSchema = z.object({
   name: z.string().min(1).max(SHEET_NAME_MAX_LENGTH),
