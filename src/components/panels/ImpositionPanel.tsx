@@ -1,5 +1,6 @@
 import { Download, FileText, Upload } from 'lucide-react';
 import React from 'react';
+import { useFileDrop } from '../../hooks/useFileDrop';
 import { layerBoxMm, setAllowRotate } from '../../imposition/state';
 import { ZOOM_OPTIONS, type ImpositionShow, type ImpositionState } from '../../imposition/types';
 import { formatMm } from '../../units';
@@ -49,10 +50,17 @@ function MmInput({ label, value, min, onChange }: { label: string; value: number
 }
 
 function UploadBox({ onUpload }: { onUpload: (files: File[]) => void }) {
+  const { isOver, dropProps } = useFileDrop(onUpload);
+  const tone = isOver ? 'border-blue-500 bg-blue-500/10' : 'border-neutral-600 hover:border-blue-500 hover:bg-neutral-700/50';
   return (
-    <label className="flex flex-col items-center justify-center w-full h-20 border-2 border-dashed border-neutral-600 rounded-lg hover:border-blue-500 hover:bg-neutral-700/50 transition cursor-pointer">
+    <label
+      {...dropProps}
+      data-testid="imposition-dropzone"
+      data-drag-over={isOver ? 'true' : undefined}
+      className={`flex flex-col items-center justify-center w-full h-20 border-2 border-dashed rounded-lg transition cursor-pointer ${tone}`}
+    >
       <Upload className="w-6 h-6 mb-1 text-neutral-500" />
-      <span className="text-xs text-neutral-400">上傳「圖＋SVG」配對（可多選）</span>
+      <span className="text-xs text-neutral-400">{isOver ? '放開以上傳' : '上傳或拖曳「圖＋SVG」配對（可多選）'}</span>
       <span className="text-[10px] text-neutral-500">同檔名配對，例如 cat.png + cat.svg</span>
       <input
         type="file"

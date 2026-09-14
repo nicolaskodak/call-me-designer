@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { useFileDrop } from '../hooks/useFileDrop';
 import { layerBoxMm, moveInstance, selectInstance } from '../imposition/state';
 import type { ImpositionInstance, ImpositionLayer, ImpositionShow, ImpositionState } from '../imposition/types';
 import { computeFitZoom } from '../imposition/zoom';
@@ -20,6 +21,7 @@ interface ImpositionCanvasProps {
   state: ImpositionState;
   update: (fn: (s: ImpositionState) => ImpositionState) => void;
   colors: Colors;
+  onDropFiles: (files: File[]) => void;
 }
 
 type DragState = { id: string; offsetXMm: number; offsetYMm: number } | null;
@@ -137,11 +139,12 @@ async function renderPdf(el: HTMLDivElement, widthMm: number, heightMm: number):
   }
 }
 
-const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProps>(({ state, update, colors }, ref) => {
+const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProps>(({ state, update, colors, onDropFiles }, ref) => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const boundaryRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [pan, setPan] = useState<PanState>(null);
+  const { isOver, dropProps } = useFileDrop(onDropFiles);
   const k = CSS_PX_PER_MM * state.zoom;
   const layerById = useMemo(() => new Map(state.layers.map(l => [l.id, l] as const)), [state.layers]);
   const notPlaced = useMemo(() => new Set(state.notPlacedInstanceIds), [state.notPlacedInstanceIds]);
@@ -193,7 +196,12 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   };
 
   return (
-    <div ref={viewportRef} className={`absolute inset-0 overflow-auto ${pan ? 'cursor-grabbing' : 'cursor-grab'}`}>
+    <div
+      ref={viewportRef}
+      {...dropProps}
+      data-drag-over={isOver ? 'true' : undefined}
+      className={`absolute inset-0 overflow-auto ${pan ? 'cursor-grabbing' : 'cursor-grab'} ${isOver ? 'ring-2 ring-inset ring-blue-500' : ''}`}
+    >
       <div className="min-w-full min-h-full flex items-center justify-center p-6">
         <div
           ref={boundaryRef}

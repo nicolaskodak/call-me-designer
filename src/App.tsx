@@ -22,6 +22,7 @@ import { BackgroundRemovalSection } from './components/panels/BackgroundRemovalS
 import { SettingsPage } from './components/panels/SettingsPage';
 import { useEditorSlot, type EditorSlot } from './hooks/useEditorSlot';
 import { useBackgroundRemoval } from './hooks/useBackgroundRemoval';
+import { useBlockWindowFileDrop } from './hooks/useFileDrop';
 import { useGeometry } from './hooks/useGeometry';
 import { useGeometryClient } from './hooks/useGeometryClient';
 import { useImposition } from './hooks/useImposition';
@@ -59,6 +60,7 @@ const dirtyPages = (entries: readonly [string, EditorSlot][]): string[] =>
 
 const App: React.FC = () => {
   const { settings } = useSettings();
+  useBlockWindowFileDrop();
   const exportColors = settings.exportColors;
   const [activeTab, setActiveTab] = useState<ActiveTab>('editor');
   const sourceApi = useSourceImage(settings.defaultDpi);
@@ -320,7 +322,7 @@ const App: React.FC = () => {
           />
         </div>
         <div className="absolute inset-0" hidden={activeTab !== 'imposition'}>
-          <ImpositionCanvas ref={impositionRef} state={imposition.state} update={imposition.update} colors={exportColors} />
+          <ImpositionCanvas ref={impositionRef} state={imposition.state} update={imposition.update} colors={exportColors} onDropFiles={uploadImposition} />
         </div>
         {activeTab === 'settings' ? (
           <div className="absolute inset-0 flex items-center justify-center text-neutral-500 text-sm pointer-events-none">
