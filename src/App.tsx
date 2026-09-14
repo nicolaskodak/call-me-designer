@@ -285,10 +285,13 @@ const App: React.FC = () => {
             onExportCut={() => exportImposition(['cut'], 'imposition-cut')}
             onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint')}
             onExportPdf={() => {
-              impositionRef.current?.exportPDF().catch((err: unknown) => {
-                console.error('匯出 PDF 失敗', err);
-                window.alert('匯出 PDF 失敗，請再試一次。');
-              });
+              impositionRef.current
+                ?.exportPDF((done, total) => setNotice(`正在產生 PDF：${done} / ${total} 頁`))
+                .then(() => setNotice('PDF 已匯出'))
+                .catch((err: unknown) => {
+                  console.error('匯出 PDF 失敗', err);
+                  window.alert('匯出 PDF 失敗，請再試一次。');
+                });
             }}
           />
         ) : null}

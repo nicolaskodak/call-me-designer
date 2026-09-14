@@ -8,7 +8,7 @@ import { nestedSvgMarkup } from '../utils/sanitizeSvg';
 import { SheetTabs } from './SheetTabs';
 
 export interface ImpositionCanvasHandle {
-  exportPDF(): Promise<void>;
+  exportPDF(onProgress?: (done: number, total: number) => void): Promise<void>;
   /** 讓整個版面剛好放進目前的視窗；還沒掛上 DOM 時回傳 null */
   fitZoom(): number | null;
 }
@@ -156,27 +156,36 @@ function SheetBoard(props: SheetBoardProps) {
   );
 }
 
-async function renderPdf(el: HTMLDivElement, widthMm: number, heightMm: number): Promise<void> {
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')]);
+/** 等兩次 rAF，確保 React 剛掛上的暫存區已經完成排版 */
+const nextPaint = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+async function captureSheet(el: HTMLDivElement, widthMm: number): Promise<string> {
+  const { default: html2canvas } = await import('html2canvas');
   const cssPxPerMm = el.offsetWidth / widthMm;
+  if (!Number.isFinite(cssPxPerMm) || cssPxPerMm <= 0) throw new Error('版面尚未排版完成，無法匯出');
   const scale = Math.max(1, Math.min(MAX_CANVAS_PX / Math.max(el.offsetWidth, el.offsetHeight), PDF_DPI / MM_PER_INCH / cssPxPerMm));
   const prevBg = el.style.backgroundColor;
   el.style.backgroundColor = 'transparent';
   try {
-    const canvas = await html2canvas(el, {
-      backgroundColor: null,
-      scale,
-      useCORS: true,
-    });
-    const doc = new jsPDF({ orientation: widthMm > heightMm ? 'l' : 'p', unit: 'mm', format: [widthMm, heightMm] });
-    // PDF 頁面不支援真正透明，先鋪白底
-    doc.setFillColor(255, 255, 255);
-    doc.rect(0, 0, widthMm, heightMm, 'F');
-    doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, widthMm, heightMm);
-    doc.save('imposition-layout.pdf');
+    const canvas = await html2canvas(el, { backgroundColor: null, scale, useCORS: true });
+    return canvas.toDataURL('image/png');
   } finally {
     el.style.backgroundColor = prevBg;
   }
+}
+
+async function buildSheetsPdf(pages: readonly { dataUrl: string; widthMm: number; heightMm: number }[]): Promise<void> {
+  const { jsPDF } = await import('jspdf');
+  const first = pages[0];
+  const doc = new jsPDF({ orientation: first.widthMm > first.heightMm ? 'l' : 'p', unit: 'mm', format: [first.widthMm, first.heightMm] });
+  pages.forEach((page, index) => {
+    if (index > 0) doc.addPage([page.widthMm, page.heightMm], page.widthMm > page.heightMm ? 'l' : 'p');
+    // PDF 頁面不支援真正透明，先鋪白底
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, page.widthMm, page.heightMm, 'F');
+    doc.addImage(page.dataUrl, 'PNG', 0, 0, page.widthMm, page.heightMm);
+  });
+  doc.save('imposition-layout.pdf');
 }
 
 const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProps>(({ state, update, colors, onDropFiles }, ref) => {
@@ -184,6 +193,8 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   const boundaryRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [pan, setPan] = useState<PanState>(null);
+  const [stageSheets, setStageSheets] = useState<readonly ImpositionSheet[] | null>(null);
+  const stageRefs = useRef(new Map<string, HTMLDivElement>());
   const { isOver, dropProps } = useFileDrop(onDropFiles);
   const k = CSS_PX_PER_MM * state.zoom;
   const layerById = useMemo(() => new Map(state.layers.map(l => [l.id, l] as const)), [state.layers]);
@@ -216,15 +227,31 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   useWindowMouse(pan !== null, onPanMove, () => setPan(null));
 
   useImperativeHandle(ref, () => ({
-    exportPDF: async () => {
-      if (boundaryRef.current) await renderPdf(boundaryRef.current, sheet.widthMm, sheet.heightMm);
+    exportPDF: async (onProgress?: (done: number, total: number) => void) => {
+      const sheets = state.sheets.filter(s => state.instances.some(i => i.sheetId === s.id));
+      if (sheets.length === 0) return;
+      setStageSheets(sheets);
+      try {
+        await nextPaint();
+        const pages: { dataUrl: string; widthMm: number; heightMm: number }[] = [];
+        for (const [index, sheet] of sheets.entries()) {
+          const el = stageRefs.current.get(sheet.id);
+          if (!el) continue;
+          pages.push({ dataUrl: await captureSheet(el, sheet.widthMm), widthMm: sheet.widthMm, heightMm: sheet.heightMm });
+          onProgress?.(index + 1, sheets.length);
+        }
+        if (pages.length > 0) await buildSheetsPdf(pages);
+      } finally {
+        setStageSheets(null);
+        stageRefs.current.clear();
+      }
     },
     fitZoom: () => {
       const viewport = viewportRef.current;
       if (!viewport) return null;
       return computeFitZoom(viewport.clientWidth, viewport.clientHeight, sheet.widthMm, sheet.heightMm, VIEWPORT_PADDING_PX);
     },
-  }), [sheet]);
+  }), [state]);
 
   const onItemMouseDown = (e: React.MouseEvent, instance: ImpositionInstance) => {
     const p = pointerMm(e);
@@ -279,6 +306,26 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
           />
         </div>
       </div>
+      {stageSheets ? (
+        <div className="fixed top-0 pointer-events-none" style={{ left: -100000 }} aria-hidden data-testid="pdf-export-stage">
+          {stageSheets.map(sheet => (
+            <React.Fragment key={sheet.id}>
+              <SheetBoard
+                sheet={sheet}
+                instances={state.instances.filter(i => i.sheetId === sheet.id)}
+                layerById={layerById}
+                k={CSS_PX_PER_MM}
+                show={state.show}
+                colors={colors}
+                boardRef={el => {
+                  if (el) stageRefs.current.set(sheet.id, el);
+                  else stageRefs.current.delete(sheet.id);
+                }}
+              />
+            </React.Fragment>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 });

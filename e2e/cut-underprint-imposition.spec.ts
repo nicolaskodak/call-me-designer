@@ -180,3 +180,39 @@ test('版面塞不下時自動開新版面，項目不重複也不遺漏', async
     expect(name).toMatch(/^imposition-layers-\d+\.svg$/);
   }
 });
+
+test('多版面匯出 PDF 會觸發一次下載，且畫面外暫存區在匯出結束後移除', async ({ page }) => {
+  await page.goto('./');
+  await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
+  await waitForCutline(page, '1');
+  await page.getByTestId('tab-underprint').click();
+  await page.getByTestId('send-to-imposition-under').click();
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+
+  // 沿用上一個測試的做法：加一個小尺寸讓一次排版產生多張版面，
+  // 這樣才能驗證匯出是「每張版面各出一頁」而不是只出現在目前分頁的內容
+  await page.getByTestId('tab-settings').click();
+  await page.getByTestId('settings-add-sheet-size').click();
+  const last = DEFAULT_SIZE_NAMES.length;
+  await page.getByTestId(`sheet-size-name-${last}`).fill('測試小版PDF');
+  await page.getByTestId(`sheet-size-width-${last}`).fill('45');
+  await page.getByTestId(`sheet-size-height-${last}`).fill('28');
+
+  await page.getByTestId('tab-imposition').click();
+  for (const name of DEFAULT_SIZE_NAMES) {
+    await page.getByTestId(`sheet-size-${name}`).uncheck();
+  }
+  await page.getByTitle('設為 0 會刪除該圖層').fill(String(COPIES));
+  await page.getByTestId('imposition-auto-layout').click();
+  await expect(page.getByTestId('imposition-sheet-count')).not.toHaveText('1');
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByTestId('export-imposition-pdf').click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('imposition-layout.pdf');
+
+  // 匯出用的畫面外暫存區（每張版面掛一份 SheetBoard 去截圖）在 finally 清乾淨後
+  // 應該完全從 DOM 移除，而不是留著、只是不可見——留著會讓下一次匯出疊加或量到舊尺寸
+  await expect(page.getByTestId('pdf-export-stage')).toHaveCount(0);
+});
