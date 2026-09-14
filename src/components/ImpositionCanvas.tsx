@@ -151,7 +151,7 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   );
   const usageById = useMemo(
     () => new Map(state.sheets.map(s => [s.id, sheetUsage(state, s.id)] as const)),
-    [state],
+    [state.sheets, state.instances, state.layers, state.minGapMm],
   );
 
   const pointerMm = (e: { clientX: number; clientY: number }) => {

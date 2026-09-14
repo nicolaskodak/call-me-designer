@@ -111,10 +111,10 @@ function LayerList({ state, onSetLayerTotalCount }: Pick<ImpositionPanelProps, '
 
 export function ImpositionPanel(props: ImpositionPanelProps) {
   const { state, update } = props;
-  const placedCount = state.instances.length - state.notPlacedInstanceIds.length;
   const hasUnderprint = state.layers.some(l => l.underprint);
   const zoomOptions = zoomOptionsFor(state.zoom);
   const notPlacedCount = state.instances.filter(i => i.sheetId === null).length;
+  const placedCount = state.instances.length - notPlacedCount;
   const notPlacedWarnings = notPlacedCount > 0
     ? [`有 ${notPlacedCount} 個項目比所有可用的版面尺寸都大，沒有排入任何版面。`]
     : [];

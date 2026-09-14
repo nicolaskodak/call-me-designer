@@ -48,7 +48,7 @@ const pruneEmptySheets = (state: ImpositionState): ImpositionState => {
   const used = new Set(state.instances.map(i => i.sheetId));
   const kept = state.sheets.filter(s => used.has(s.id));
   const sheets = kept.length > 0 ? kept : state.sheets.slice(0, 1);
-  const activeSheetId = sheets.some(s => s.id === state.activeSheetId) ? state.activeSheetId : sheets[0].id;
+  const activeSheetId = sheets.some(s => s.id === state.activeSheetId) ? state.activeSheetId : sheets[0]?.id ?? state.activeSheetId;
   return { ...state, sheets, activeSheetId };
 };
 
