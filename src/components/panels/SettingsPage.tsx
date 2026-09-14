@@ -1,10 +1,15 @@
-import { Eye, EyeOff, PlugZap, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, PlugZap, Plus, Trash2 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
+import { DEFAULT_SHEET_SIZES, type SheetSize } from '../../imposition/sheetSizes';
 import { createRemoveBgClient, RemoveBgError } from '../../services/removeBg';
 import { REMOVE_BG_SIZES, type RemoveBgSize } from '../../settings/schema';
 import { useSettings } from '../../settings/SettingsContext';
 import { DPI_MAX, DPI_MIN, isValidDpi } from '../../units';
 import { ActionButton, Section, SelectField, Warnings } from './fields';
+
+/** 與 src/settings/schema.ts 的 sheetSizeSchema 邊界一致，維持 UI 端 draft 驗證與儲存層驗證同步。 */
+const SHEET_NAME_MAX_LENGTH = 20;
+const SHEET_SIDE_MAX_MM = 2000;
 
 const SIZE_LABELS: Record<RemoveBgSize, string> = {
   auto: 'auto（依點數自動選最高解析度）',
@@ -51,6 +56,114 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
         <input type="color" value={value} onChange={e => onChange(e.target.value.toUpperCase())} className="w-8 h-8 rounded bg-transparent border-none cursor-pointer" />
       </span>
     </label>
+  );
+}
+
+function SheetSizeRow({ size, index, onChange, onDelete }: {
+  size: SheetSize;
+  index: number;
+  onChange: (next: SheetSize) => void;
+  onDelete: () => void;
+}) {
+  const [nameDraft, setNameDraft] = useState(size.name);
+  const [widthDraft, setWidthDraft] = useState(String(size.widthMm));
+  const [heightDraft, setHeightDraft] = useState(String(size.heightMm));
+  useEffect(() => setNameDraft(size.name), [size.name]);
+  useEffect(() => setWidthDraft(String(size.widthMm)), [size.widthMm]);
+  useEffect(() => setHeightDraft(String(size.heightMm)), [size.heightMm]);
+
+  const commitName = () => {
+    const trimmed = nameDraft.trim();
+    if (trimmed.length >= 1 && trimmed.length <= SHEET_NAME_MAX_LENGTH) onChange({ ...size, name: trimmed });
+    else setNameDraft(size.name);
+  };
+  const commitWidth = () => {
+    const n = Number(widthDraft);
+    if (Number.isFinite(n) && n > 0 && n <= SHEET_SIDE_MAX_MM) onChange({ ...size, widthMm: n });
+    else setWidthDraft(String(size.widthMm));
+  };
+  const commitHeight = () => {
+    const n = Number(heightDraft);
+    if (Number.isFinite(n) && n > 0 && n <= SHEET_SIDE_MAX_MM) onChange({ ...size, heightMm: n });
+    else setHeightDraft(String(size.heightMm));
+  };
+
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <input
+        value={nameDraft}
+        maxLength={SHEET_NAME_MAX_LENGTH}
+        data-testid={`sheet-size-name-${index}`}
+        onChange={e => setNameDraft(e.target.value)}
+        onBlur={commitName}
+        onKeyDown={e => { if (e.key === 'Enter') commitName(); }}
+        className="flex-1 min-w-0 px-2 py-1 rounded bg-neutral-700 border border-neutral-600 text-white"
+      />
+      <input
+        type="number"
+        min={1}
+        max={SHEET_SIDE_MAX_MM}
+        value={widthDraft}
+        data-testid={`sheet-size-width-${index}`}
+        onChange={e => setWidthDraft(e.target.value)}
+        onBlur={commitWidth}
+        onKeyDown={e => { if (e.key === 'Enter') commitWidth(); }}
+        className="w-20 px-2 py-1 rounded bg-neutral-700 border border-neutral-600 text-white text-right"
+      />
+      <span className="text-neutral-500">×</span>
+      <input
+        type="number"
+        min={1}
+        max={SHEET_SIDE_MAX_MM}
+        value={heightDraft}
+        data-testid={`sheet-size-height-${index}`}
+        onChange={e => setHeightDraft(e.target.value)}
+        onBlur={commitHeight}
+        onKeyDown={e => { if (e.key === 'Enter') commitHeight(); }}
+        className="w-20 px-2 py-1 rounded bg-neutral-700 border border-neutral-600 text-white text-right"
+      />
+      <button
+        type="button"
+        title="刪除"
+        data-testid={`sheet-size-delete-${index}`}
+        onClick={onDelete}
+        className="px-2 py-1 rounded bg-neutral-700 text-neutral-300"
+      >
+        <Trash2 className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
+function SheetSizesSection() {
+  const { settings, update } = useSettings();
+  const setSizes = (sizes: SheetSize[]) => update(s => ({ ...s, sheetSizes: sizes }));
+
+  return (
+    <Section title="版面尺寸">
+      <p className="text-[10px] text-neutral-500">拼版時會從這些尺寸中自動選出最省紙的組合。單位 mm。</p>
+      <div className="space-y-2" data-testid="settings-sheet-sizes">
+        {settings.sheetSizes.map((size, index) => (
+          <React.Fragment key={index}>
+            <SheetSizeRow
+              index={index}
+              size={size}
+              onChange={next => setSizes(settings.sheetSizes.map((s, i) => (i === index ? next : s)))}
+              onDelete={() => setSizes(settings.sheetSizes.filter((_, i) => i !== index))}
+            />
+          </React.Fragment>
+        ))}
+      </div>
+      <ActionButton
+        onClick={() => setSizes([...settings.sheetSizes, { name: '新尺寸', widthMm: 300, heightMm: 200 }])}
+        testId="settings-add-sheet-size"
+      >
+        <Plus className="w-3 h-3" /> 新增尺寸
+      </ActionButton>
+      <ActionButton onClick={() => setSizes([...DEFAULT_SHEET_SIZES])} testId="settings-reset-sheet-sizes">
+        還原預設清單
+      </ActionButton>
+    </Section>
   );
 }
 
@@ -103,6 +216,7 @@ export function SettingsPage() {
         <ColorField label="刀模線" value={settings.exportColors.cut} onChange={c => update(s => ({ ...s, exportColors: { ...s.exportColors, cut: c } }))} />
         <ColorField label="白墨" value={settings.exportColors.underprint} onChange={c => update(s => ({ ...s, exportColors: { ...s.exportColors, underprint: c } }))} />
       </Section>
+      <SheetSizesSection />
       <Section title="remove.bg 去背">
         <label className="block space-y-1 text-xs">
           <span className="text-neutral-400">API key</span>

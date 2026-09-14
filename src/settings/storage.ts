@@ -40,6 +40,8 @@ export function loadSettings(storage: StorageLike | null): SettingsLoadResult {
 
 export function saveSettings(storage: StorageLike | null, settings: Settings): boolean {
   if (!storage) return false;
+  /** 結構性防護：即使呼叫端傳入不合法的值，也不寫入 localStorage，避免下次載入時被整包重設。 */
+  if (!parseSettings(settings)) return false;
   try {
     storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
     return true;
