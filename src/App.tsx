@@ -97,6 +97,7 @@ const App: React.FC = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
   const impositionRef = useRef<ImpositionCanvasHandle>(null);
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
   const { guard, dialog } = useRegenerateGuard();
 
   // 確認後立刻清掉 dirty，避免拖拉桿時重複詢問
@@ -284,14 +285,17 @@ const App: React.FC = () => {
             onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers')}
             onExportCut={() => exportImposition(['cut'], 'imposition-cut')}
             onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint')}
+            isPdfExporting={isPdfExporting}
             onExportPdf={() => {
+              setIsPdfExporting(true);
               impositionRef.current
                 ?.exportPDF((done, total) => setNotice(`正在產生 PDF：${done} / ${total} 頁`))
                 .then(() => setNotice('PDF 已匯出'))
                 .catch((err: unknown) => {
                   console.error('匯出 PDF 失敗', err);
                   window.alert('匯出 PDF 失敗，請再試一次。');
-                });
+                })
+                .finally(() => setIsPdfExporting(false));
             }}
           />
         ) : null}

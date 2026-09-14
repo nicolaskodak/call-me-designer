@@ -216,3 +216,50 @@ test('多版面匯出 PDF 會觸發一次下載，且畫面外暫存區在匯出
   // 應該完全從 DOM 移除，而不是留著、只是不可見——留著會讓下一次匯出疊加或量到舊尺寸
   await expect(page.getByTestId('pdf-export-stage')).toHaveCount(0);
 });
+
+test('連續快速點兩次「PDF 預覽」只會產生一次下載', async ({ page }) => {
+  await page.goto('./');
+  await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
+  await waitForCutline(page, '1');
+  await page.getByTestId('tab-underprint').click();
+  await page.getByTestId('send-to-imposition-under').click();
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+
+  // 同樣先讓一次排版產生多張版面：版面數夠多、單張截圖要花一點時間，
+  // 才有機會讓「連點兩下」的第二下真的落在第一次匯出還沒結束的時間窗內
+  await page.getByTestId('tab-settings').click();
+  await page.getByTestId('settings-add-sheet-size').click();
+  const last = DEFAULT_SIZE_NAMES.length;
+  await page.getByTestId(`sheet-size-name-${last}`).fill('測試小版連點');
+  await page.getByTestId(`sheet-size-width-${last}`).fill('45');
+  await page.getByTestId(`sheet-size-height-${last}`).fill('28');
+
+  await page.getByTestId('tab-imposition').click();
+  for (const name of DEFAULT_SIZE_NAMES) {
+    await page.getByTestId(`sheet-size-${name}`).uncheck();
+  }
+  await page.getByTitle('設為 0 會刪除該圖層').fill(String(COPIES));
+  await page.getByTestId('imposition-auto-layout').click();
+  await expect(page.getByTestId('imposition-sheet-count')).not.toHaveText('1');
+
+  const downloads: string[] = [];
+  page.on('download', d => downloads.push(d.suggestedFilename()));
+
+  // 刻意不用 locator.click() 連點兩次：第一次點擊之後按鈕要等 React 重新渲染、
+  // 把 disabled 屬性真的套到 DOM 上才會擋下第二次點擊，這中間有一段時間差，
+  // 用 Playwright 一次次呼叫 click()（每次都是一趟獨立的 CDP 往返）很容易被這段
+  // 時間差蓋過去，測到的其實是「按鈕來得及先變成 disabled」，而不是重入防護本身。
+  // 改成在瀏覽器同一個同步的執行context裡連續呼叫兩次原生 el.click()：兩次呼叫
+  // 之間沒有任何事件迴圈或微任務的空隙，React 對第一次點擊觸發的 state 更新（含
+  // disabled）根本來不及 commit，才能真正逼出「兩個 exportPDF 幾乎同時開始執行」
+  // 這個情境，直接命中 ImpositionCanvas.tsx 裡 exportingRef 這個重入防護。
+  await page.evaluate(() => {
+    const el = document.querySelector('[data-testid="export-imposition-pdf"]') as HTMLButtonElement | null;
+    el?.click();
+    el?.click();
+  });
+
+  // 等匯出真的跑完（暫存區消失）再收斂下載事件
+  await expect(page.getByTestId('pdf-export-stage')).toHaveCount(0, { timeout: 15_000 });
+  expect(downloads).toEqual(['imposition-layout.pdf']);
+});

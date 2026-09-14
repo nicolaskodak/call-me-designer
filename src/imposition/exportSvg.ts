@@ -1,6 +1,7 @@
 import { CUT_STROKE_MM, escapeAttr, formatNumber, pathElement } from '../export/svg';
 import { mmToPx, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
+import { sheetsWithContent } from './state';
 import type { ImpositionInstance, ImpositionLayer, ImpositionState } from './types';
 
 export type ImpositionLayerKind = 'artwork' | 'underprint' | 'cut';
@@ -99,17 +100,15 @@ export function buildSheetSvgs(o: {
   imageDataUrls: ReadonlyMap<string, string>;
   baseName: string;
 }): SheetSvgFile[] {
-  return o.state.sheets.flatMap(sheet => {
-    const items = placedItems(o.state, sheet.id);
-    if (items.length === 0) return [];
+  return sheetsWithContent(o.state).map((sheet, index) => {
     const svg = buildImpositionSvg({
       widthMm: sheet.widthMm,
       heightMm: sheet.heightMm,
-      items,
+      items: placedItems(o.state, sheet.id),
       kinds: o.kinds,
       colors: o.colors,
       imageDataUrls: o.imageDataUrls,
     });
-    return [{ svg, filename: '' }];
-  }).map((file, index) => ({ ...file, filename: `${o.baseName}-${index + 1}.svg` }));
+    return { svg, filename: `${o.baseName}-${index + 1}.svg` };
+  });
 }

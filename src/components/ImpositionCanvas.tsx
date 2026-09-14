@@ -1,6 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useFileDrop } from '../hooks/useFileDrop';
-import { layerBoxMm, moveInstance, selectInstance, selectSheet, sheetUsage } from '../imposition/state';
+import { layerBoxMm, moveInstance, selectInstance, selectSheet, sheetsWithContent, sheetUsage } from '../imposition/state';
 import type { ImpositionInstance, ImpositionLayer, ImpositionShow, ImpositionSheet, ImpositionState } from '../imposition/types';
 import { computeFitZoom } from '../imposition/zoom';
 import { CSS_PX_PER_MM, MM_PER_INCH } from '../units';
@@ -27,6 +27,21 @@ interface ImpositionCanvasProps {
 
 type DragState = { id: string; offsetXMm: number; offsetYMm: number } | null;
 type PanState = { x: number; y: number; left: number; top: number } | null;
+
+/**
+ * PDF 匯出用的畫面外暫存區快照。整個匯出過程要逐張版面依序截圖，中途使用者仍可以
+ * 繼續操作畫布（拖曳、刪除、切換顯示、重新排圖甚至改設定色），若暫存區持續讀「當下」的
+ * state／props，先截的頁與還沒截的頁就會落在不同時間點——輕則畫面不一致，重則版面 id
+ * 已經被「排圖」整批換掉、filter 不到任何 instance 而生出空白頁，而且不會有任何錯誤。
+ * 所以在按下匯出的當下把「這次要匯出什麼」整包凍結成快照，暫存區的渲染只讀這個快照，
+ * 不再回頭讀外層的 state／layerById／colors。
+ */
+interface StageSnapshot {
+  sheets: readonly { sheet: ImpositionSheet; instances: readonly ImpositionInstance[] }[];
+  layerById: ReadonlyMap<string, ImpositionLayer>;
+  show: ImpositionShow;
+  colors: Colors;
+}
 
 const PDF_DPI = 300;
 const MAX_CANVAS_PX = 4000;
@@ -193,8 +208,10 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   const boundaryRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [pan, setPan] = useState<PanState>(null);
-  const [stageSheets, setStageSheets] = useState<readonly ImpositionSheet[] | null>(null);
+  const [stage, setStage] = useState<StageSnapshot | null>(null);
   const stageRefs = useRef(new Map<string, HTMLDivElement>());
+  /** exportPDF 的重入防護：連點兩次「PDF 預覽」不會啟動第二個並行匯出去搶同一份 stageRefs */
+  const exportingRef = useRef(false);
   const { isOver, dropProps } = useFileDrop(onDropFiles);
   const k = CSS_PX_PER_MM * state.zoom;
   const layerById = useMemo(() => new Map(state.layers.map(l => [l.id, l] as const)), [state.layers]);
@@ -228,22 +245,39 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
 
   useImperativeHandle(ref, () => ({
     exportPDF: async (onProgress?: (done: number, total: number) => void) => {
-      const sheets = state.sheets.filter(s => state.instances.some(i => i.sheetId === s.id));
-      if (sheets.length === 0) return;
-      setStageSheets(sheets);
+      // 重入防護：正在匯出時再次呼叫直接不做事，避免兩個呼叫共用同一份 stageRefs／stage
+      // ——先跑完的那個在 finally 清空暫存區，會讓還在跑的那個拿不到元素而悄悄漏頁。
+      if (exportingRef.current) return;
+      exportingRef.current = true;
       try {
-        await nextPaint();
-        const pages: { dataUrl: string; widthMm: number; heightMm: number }[] = [];
-        for (const [index, sheet] of sheets.entries()) {
-          const el = stageRefs.current.get(sheet.id);
-          if (!el) continue;
-          pages.push({ dataUrl: await captureSheet(el, sheet.widthMm), widthMm: sheet.widthMm, heightMm: sheet.heightMm });
-          onProgress?.(index + 1, sheets.length);
+        const sheets = sheetsWithContent(state);
+        if (sheets.length === 0) return;
+        // 在按下的當下把要匯出的內容整包凍結成快照，避免匯出途中使用者的操作
+        // （拖曳、刪除、切換顯示、重新排圖、改色）讓還沒截圖的版面讀到不一致的資料
+        const snapshot: StageSnapshot = {
+          sheets: sheets.map(s => ({ sheet: s, instances: state.instances.filter(i => i.sheetId === s.id) })),
+          layerById,
+          show: state.show,
+          colors,
+        };
+        setStage(snapshot);
+        try {
+          await nextPaint();
+          const pages: { dataUrl: string; widthMm: number; heightMm: number }[] = [];
+          for (const [index, { sheet: s }] of snapshot.sheets.entries()) {
+            const el = stageRefs.current.get(s.id);
+            // 預期存在卻拿不到 el 一律視為失敗：安靜跳過會少一頁卻不會被任何人發現
+            if (!el) throw new Error(`版面 ${s.id} 的暫存區元素不存在，無法匯出`);
+            pages.push({ dataUrl: await captureSheet(el, s.widthMm), widthMm: s.widthMm, heightMm: s.heightMm });
+            onProgress?.(index + 1, snapshot.sheets.length);
+          }
+          if (pages.length > 0) await buildSheetsPdf(pages);
+        } finally {
+          setStage(null);
+          stageRefs.current.clear();
         }
-        if (pages.length > 0) await buildSheetsPdf(pages);
       } finally {
-        setStageSheets(null);
-        stageRefs.current.clear();
+        exportingRef.current = false;
       }
     },
     fitZoom: () => {
@@ -251,7 +285,7 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
       if (!viewport) return null;
       return computeFitZoom(viewport.clientWidth, viewport.clientHeight, sheet.widthMm, sheet.heightMm, VIEWPORT_PADDING_PX);
     },
-  }), [state]);
+  }), [state, layerById, colors]);
 
   const onItemMouseDown = (e: React.MouseEvent, instance: ImpositionInstance) => {
     const p = pointerMm(e);
@@ -306,17 +340,17 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
           />
         </div>
       </div>
-      {stageSheets ? (
+      {stage ? (
         <div className="fixed top-0 pointer-events-none" style={{ left: -100000 }} aria-hidden data-testid="pdf-export-stage">
-          {stageSheets.map(sheet => (
+          {stage.sheets.map(({ sheet, instances }) => (
             <React.Fragment key={sheet.id}>
               <SheetBoard
                 sheet={sheet}
-                instances={state.instances.filter(i => i.sheetId === sheet.id)}
-                layerById={layerById}
+                instances={instances}
+                layerById={stage.layerById}
                 k={CSS_PX_PER_MM}
-                show={state.show}
-                colors={colors}
+                show={stage.show}
+                colors={stage.colors}
                 boardRef={el => {
                   if (el) stageRefs.current.set(sheet.id, el);
                   else stageRefs.current.delete(sheet.id);

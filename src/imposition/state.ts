@@ -1,7 +1,7 @@
 import { pxToMm } from '../units';
 import { packIntoSheets } from './sheets';
 import type { SheetSize } from './sheetSizes';
-import type { ImpositionInstance, ImpositionLayer, ImpositionState } from './types';
+import type { ImpositionInstance, ImpositionLayer, ImpositionSheet, ImpositionState } from './types';
 
 export type IdFactory = () => string;
 
@@ -174,6 +174,20 @@ export function sheetUsage(state: ImpositionState, sheetId: string): number {
       return sum + (w + state.minGapMm) * (h + state.minGapMm);
     }, 0);
   return used / (sheet.widthMm * sheet.heightMm);
+}
+
+/**
+ * 有實際內容（至少一個項目引用著存在的圖層）的版面，依 state.sheets 原本順序。
+ * SVG（`placedItems`／`buildSheetSvgs`）與 PDF（`ImpositionCanvas.exportPDF`）匯出都用這個函式
+ * 決定要匯出哪些版面：兩邊各自維護一份「哪張版面算有內容」的判準，遲早會因為其中一邊改動
+ * 而悄悄產生「SVG N 檔、PDF M 頁」的落差；共用同一個 selector 讓這個判準只有一個真相來源。
+ */
+export function sheetsWithContent(state: ImpositionState): ImpositionSheet[] {
+  const layerIds = new Set(state.layers.map(l => l.id));
+  const sheetIdsWithContent = new Set(
+    state.instances.filter(i => i.sheetId !== null && layerIds.has(i.layerId)).map(i => i.sheetId as string),
+  );
+  return state.sheets.filter(s => sheetIdsWithContent.has(s.id));
 }
 
 export const toggleSheetSize = (state: ImpositionState, name: string): ImpositionState => ({

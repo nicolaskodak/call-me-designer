@@ -20,6 +20,8 @@ interface ImpositionPanelProps {
   onExportCut: () => void;
   onExportUnderprint: () => void;
   onExportPdf: () => void;
+  /** PDF 匯出進行中；只用來停用「PDF 預覽」按鈕，不影響其他三個 SVG 匯出按鈕 */
+  isPdfExporting: boolean;
 }
 
 const SHOW_LABELS: readonly [keyof ImpositionShow, string][] = [
@@ -192,7 +194,7 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
         <ActionButton onClick={props.onExportUnderprint} disabled={!hasExportableItems || !hasUnderprint} testId="export-imposition-underprint">
           <Download className="w-3 h-3" /> 只有白墨 SVG（每張版面一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportPdf} disabled={!hasExportableItems} testId="export-imposition-pdf">
+        <ActionButton onClick={props.onExportPdf} disabled={!hasExportableItems || props.isPdfExporting} testId="export-imposition-pdf">
           <FileText className="w-3 h-3" /> PDF 預覽（點陣）
         </ActionButton>
       </Section>
