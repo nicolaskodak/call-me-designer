@@ -4,7 +4,7 @@ import { useFileDrop } from '../../hooks/useFileDrop';
 import { placedItems } from '../../imposition/exportSvg';
 import type { SheetSize } from '../../imposition/sheetSizes';
 import { MAX_SHEETS } from '../../imposition/sheets';
-import { layerBoxMm, setAllowRotate, toggleSheetSize } from '../../imposition/state';
+import { layerBoxMm, NO_ENABLED_SIZE_MESSAGE, setAllowRotate, toggleSheetSize } from '../../imposition/state';
 import { ZOOM_OPTIONS, type ImpositionShow, type ImpositionState } from '../../imposition/types';
 import { formatMm } from '../../units';
 import { ActionButton, InfoRow, Section, SelectField, ToggleField, Warnings } from './fields';
@@ -118,6 +118,9 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   const hasUnderprint = state.layers.some(l => l.underprint);
   const zoomOptions = zoomOptionsFor(state.zoom);
   const notPlacedCount = state.instances.filter(i => i.sheetId === null).length;
+  // 排圖按鈕的停用條件之一：清單裡的尺寸全部被停用（清單本身是空的時候，這裡的 every 會是 vacuously true，
+  // 交由下面的 disabled 判斷一起處理；面板提示則只在「清單非空、但全部被停用」時顯示，見下方用法）
+  const allSizesDisabled = props.sheetSizes.every(s => state.disabledSizeNames.includes(s.name));
   // 按鈕要反映「目前這張版面有沒有東西可匯出」，所以只算當前版面，
   // 與 exportFile.ts 匯出時呼叫 placedItems(state, sheet.id) 用同一個判準
   const placedCount = placedItems(state, state.activeSheetId).length;
@@ -169,9 +172,12 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
         <InfoRow label="版面" value={state.sheets.length} testId="imposition-sheet-count" />
         <ActionButton
           onClick={props.onAutoLayout}
-          disabled={state.instances.length === 0 || props.sheetSizes.every(s => state.disabledSizeNames.includes(s.name))}
+          disabled={state.instances.length === 0 || allSizesDisabled}
           testId="imposition-auto-layout"
         >排圖</ActionButton>
+        {props.sheetSizes.length > 0 && allSizesDisabled ? (
+          <p className="text-[10px] text-amber-300" data-testid="imposition-no-enabled-size">{NO_ENABLED_SIZE_MESSAGE}</p>
+        ) : null}
         <Warnings messages={notPlacedWarnings} />
         {state.lastLayoutMessage ? (
           <div className="p-2 rounded bg-neutral-900 border border-neutral-700 text-[10px] text-neutral-300">{state.lastLayoutMessage}</div>

@@ -41,9 +41,12 @@ export function loadSettings(storage: StorageLike | null): SettingsLoadResult {
 export function saveSettings(storage: StorageLike | null, settings: Settings): boolean {
   if (!storage) return false;
   /** 結構性防護：即使呼叫端傳入不合法的值，也不寫入 localStorage，避免下次載入時被整包重設。 */
-  if (!parseSettings(settings)) return false;
+  const validated = parseSettings(settings);
+  if (!validated) return false;
   try {
-    storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    // 寫入 parseSettings 回傳的值（而非原始 settings）：zod 會剝除未知欄位，
+    // 這樣多餘屬性就不會被夾帶進 localStorage。
+    storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(validated));
     return true;
   } catch {
     return false;

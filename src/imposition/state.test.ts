@@ -7,6 +7,7 @@ import {
   layerBoxMm,
   LAYOUT_STALE_MESSAGE,
   moveInstance,
+  NO_ENABLED_SIZE_MESSAGE,
   selectInstance,
   selectSheet,
   setAllowRotate,
@@ -158,7 +159,7 @@ describe('autoLayout', () => {
     const s = withLayer();
     const laid = autoLayout(s, [], idGen());
     expect(laid.instances).toEqual(s.instances);
-    expect(laid.lastLayoutMessage).toBe('請先勾選至少一種版面尺寸。');
+    expect(laid.lastLayoutMessage).toBe(NO_ENABLED_SIZE_MESSAGE);
   });
 
   it('不允許旋轉時清掉既有的旋轉', () => {
