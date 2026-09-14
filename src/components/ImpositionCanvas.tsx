@@ -1,10 +1,11 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useFileDrop } from '../hooks/useFileDrop';
-import { layerBoxMm, moveInstance, selectInstance } from '../imposition/state';
+import { layerBoxMm, moveInstance, selectInstance, selectSheet, sheetUsage } from '../imposition/state';
 import type { ImpositionInstance, ImpositionLayer, ImpositionShow, ImpositionState } from '../imposition/types';
 import { computeFitZoom } from '../imposition/zoom';
 import { CSS_PX_PER_MM, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
+import { SheetTabs } from './SheetTabs';
 
 export interface ImpositionCanvasHandle {
   exportPDF(): Promise<void>;
@@ -85,13 +86,12 @@ interface ItemProps {
   instance: ImpositionInstance;
   k: number;
   selected: boolean;
-  notPlaced: boolean;
   show: ImpositionShow;
   colors: Colors;
   onMouseDown: (e: React.MouseEvent, instance: ImpositionInstance) => void;
 }
 
-function ImpositionItem({ layer, instance, k, selected, notPlaced, show, colors, onMouseDown }: ItemProps) {
+function ImpositionItem({ layer, instance, k, selected, show, colors, onMouseDown }: ItemProps) {
   const { w, h } = layerBoxMm(layer, instance.rotationDeg);
   const scale = (k * MM_PER_INCH) / layer.dpi;
   return (
@@ -102,9 +102,7 @@ function ImpositionItem({ layer, instance, k, selected, notPlaced, show, colors,
       role="button"
       aria-label={`Imposition item ${layer.name}`}
       data-testid="imposition-item"
-      data-not-placed={notPlaced ? 'true' : 'false'}
     >
-      {notPlaced ? <div className="absolute inset-0 bg-yellow-200/40 pointer-events-none" /> : null}
       <div
         className="absolute left-0 top-0 pointer-events-none"
         style={{ width: layer.widthPx, height: layer.heightPx, transformOrigin: 'top left', transform: contentTransform(layer, instance.rotationDeg, scale) }}
@@ -126,7 +124,6 @@ async function renderPdf(el: HTMLDivElement, widthMm: number, heightMm: number):
       backgroundColor: null,
       scale,
       useCORS: true,
-      ignoreElements: node => node instanceof HTMLElement && node.dataset.notPlaced === 'true',
     });
     const doc = new jsPDF({ orientation: widthMm > heightMm ? 'l' : 'p', unit: 'mm', format: [widthMm, heightMm] });
     // PDF 頁面不支援真正透明，先鋪白底
@@ -147,7 +144,15 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   const { isOver, dropProps } = useFileDrop(onDropFiles);
   const k = CSS_PX_PER_MM * state.zoom;
   const layerById = useMemo(() => new Map(state.layers.map(l => [l.id, l] as const)), [state.layers]);
-  const notPlaced = useMemo(() => new Set(state.notPlacedInstanceIds), [state.notPlacedInstanceIds]);
+  const sheet = state.sheets.find(s => s.id === state.activeSheetId) ?? state.sheets[0];
+  const visible = useMemo(
+    () => state.instances.filter(i => i.sheetId === state.activeSheetId),
+    [state.instances, state.activeSheetId],
+  );
+  const usageById = useMemo(
+    () => new Map(state.sheets.map(s => [s.id, sheetUsage(state, s.id)] as const)),
+    [state],
+  );
 
   const pointerMm = (e: { clientX: number; clientY: number }) => {
     const rect = boundaryRef.current?.getBoundingClientRect();
@@ -169,14 +174,14 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
 
   useImperativeHandle(ref, () => ({
     exportPDF: async () => {
-      if (boundaryRef.current) await renderPdf(boundaryRef.current, state.boundaryWidthMm, state.boundaryHeightMm);
+      if (boundaryRef.current) await renderPdf(boundaryRef.current, sheet.widthMm, sheet.heightMm);
     },
     fitZoom: () => {
       const viewport = viewportRef.current;
       if (!viewport) return null;
-      return computeFitZoom(viewport.clientWidth, viewport.clientHeight, state.boundaryWidthMm, state.boundaryHeightMm, VIEWPORT_PADDING_PX);
+      return computeFitZoom(viewport.clientWidth, viewport.clientHeight, sheet.widthMm, sheet.heightMm, VIEWPORT_PADDING_PX);
     },
-  }), [state.boundaryWidthMm, state.boundaryHeightMm]);
+  }), [sheet]);
 
   const onItemMouseDown = (e: React.MouseEvent, instance: ImpositionInstance) => {
     const p = pointerMm(e);
@@ -196,43 +201,49 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   };
 
   return (
-    <div
-      ref={viewportRef}
-      {...dropProps}
-      data-testid="imposition-canvas-dropzone"
-      data-drag-over={isOver ? 'true' : undefined}
-      className={`absolute inset-0 overflow-auto ${pan ? 'cursor-grabbing' : 'cursor-grab'} ${isOver ? 'ring-2 ring-inset ring-blue-500' : ''}`}
-    >
-      <div className="min-w-full min-h-full flex items-center justify-center p-6">
-        <div
-          ref={boundaryRef}
-          className="relative shrink-0 border-2 border-dashed border-neutral-700 rounded-lg overflow-hidden bg-neutral-900/20"
-          style={{ width: state.boundaryWidthMm * k, height: state.boundaryHeightMm * k }}
-          onMouseDown={onBoundaryMouseDown}
-        >
-          {state.instances.length === 0 ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-500 pointer-events-none">
-              <p className="text-lg font-medium">尚無排版項目</p>
-              <p className="text-sm opacity-60">從 Editor／Underprint 送過來，或上傳「圖＋SVG」配對。</p>
-            </div>
-          ) : null}
-          {state.instances.map(instance => {
-            const layer = layerById.get(instance.layerId);
-            return layer ? (
-              <React.Fragment key={instance.id}>
-                <ImpositionItem
-                  layer={layer}
-                  instance={instance}
-                  k={k}
-                  selected={state.selectedInstanceId === instance.id}
-                  notPlaced={notPlaced.has(instance.id)}
-                  show={state.show}
-                  colors={colors}
-                  onMouseDown={onItemMouseDown}
-                />
-              </React.Fragment>
-            ) : null;
-          })}
+    <div className="absolute inset-0 flex flex-col">
+      <SheetTabs
+        sheets={state.sheets}
+        activeSheetId={state.activeSheetId}
+        usageById={usageById}
+        onSelect={id => update(s => selectSheet(s, id))}
+      />
+      <div
+        ref={viewportRef}
+        {...dropProps}
+        data-drag-over={isOver ? 'true' : undefined}
+        className={`relative flex-1 overflow-auto ${pan ? 'cursor-grabbing' : 'cursor-grab'} ${isOver ? 'ring-2 ring-inset ring-blue-500' : ''}`}
+      >
+        <div className="min-w-full min-h-full flex items-center justify-center p-6">
+          <div
+            ref={boundaryRef}
+            className="relative shrink-0 border-2 border-dashed border-neutral-700 rounded-lg overflow-hidden bg-neutral-900/20"
+            style={{ width: sheet.widthMm * k, height: sheet.heightMm * k }}
+            onMouseDown={onBoundaryMouseDown}
+          >
+            {state.instances.length === 0 ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-500 pointer-events-none">
+                <p className="text-lg font-medium">尚無排版項目</p>
+                <p className="text-sm opacity-60">從 Editor／Underprint 送過來，或拖曳「圖＋SVG」配對進來。</p>
+              </div>
+            ) : null}
+            {visible.map(instance => {
+              const layer = layerById.get(instance.layerId);
+              return layer ? (
+                <React.Fragment key={instance.id}>
+                  <ImpositionItem
+                    layer={layer}
+                    instance={instance}
+                    k={k}
+                    selected={state.selectedInstanceId === instance.id}
+                    show={state.show}
+                    colors={colors}
+                    onMouseDown={onItemMouseDown}
+                  />
+                </React.Fragment>
+              ) : null;
+            })}
+          </div>
         </div>
       </div>
     </div>
