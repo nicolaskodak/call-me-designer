@@ -1,5 +1,6 @@
 import { pxToMm } from '../units';
-import { packWithinBoundary } from './packing';
+import { packIntoSheets } from './sheets';
+import type { SheetSize } from './sheetSizes';
 import type { ImpositionInstance, ImpositionLayer, ImpositionState } from './types';
 
 export type IdFactory = () => string;
@@ -13,14 +14,17 @@ export function layerBoxMm(layer: ImpositionLayer, rotationDeg: 0 | 90): { w: nu
   return rotationDeg === 90 ? { w: h, h: w } : { w, h };
 }
 
-const instancesFor = (layerId: string, count: number, newId: IdFactory): ImpositionInstance[] =>
-  Array.from({ length: count }, () => ({ id: newId(), layerId, xMm: 0, yMm: 0, rotationDeg: 0 as const }));
+const instancesFor = (layerId: string, count: number, newId: IdFactory, sheetId: string): ImpositionInstance[] =>
+  Array.from({ length: count }, () => ({ id: newId(), layerId, sheetId, xMm: 0, yMm: 0, rotationDeg: 0 as const }));
 
 export function addLayers(state: ImpositionState, layers: readonly ImpositionLayer[], newId: IdFactory): ImpositionState {
   return {
     ...state,
     layers: [...state.layers, ...layers],
-    instances: [...state.instances, ...layers.flatMap(l => instancesFor(l.id, Math.max(1, l.totalCount), newId))],
+    instances: [
+      ...state.instances,
+      ...layers.flatMap(l => instancesFor(l.id, Math.max(1, l.totalCount), newId, state.activeSheetId)),
+    ],
     notPlacedInstanceIds: [],
     // 新項目都疊在 (0,0)，提示使用者重新排圖
     lastLayoutMessage: LAYOUT_STALE_MESSAGE,
@@ -39,12 +43,22 @@ export function upsertSourceLayer(state: ImpositionState, incoming: ImpositionLa
   };
 }
 
-const removeInstances = (state: ImpositionState, ids: ReadonlySet<string>): ImpositionState => ({
-  ...state,
-  instances: state.instances.filter(i => !ids.has(i.id)),
-  notPlacedInstanceIds: state.notPlacedInstanceIds.filter(id => !ids.has(id)),
-  selectedInstanceId: state.selectedInstanceId && ids.has(state.selectedInstanceId) ? null : state.selectedInstanceId,
-});
+/** 沒有任何項目的版面就移除；至少保留一張，畫布才不會空白 */
+const pruneEmptySheets = (state: ImpositionState): ImpositionState => {
+  const used = new Set(state.instances.map(i => i.sheetId));
+  const kept = state.sheets.filter(s => used.has(s.id));
+  const sheets = kept.length > 0 ? kept : state.sheets.slice(0, 1);
+  const activeSheetId = sheets.some(s => s.id === state.activeSheetId) ? state.activeSheetId : sheets[0].id;
+  return { ...state, sheets, activeSheetId };
+};
+
+const removeInstances = (state: ImpositionState, ids: ReadonlySet<string>): ImpositionState =>
+  pruneEmptySheets({
+    ...state,
+    instances: state.instances.filter(i => !ids.has(i.id)),
+    notPlacedInstanceIds: state.notPlacedInstanceIds.filter(id => !ids.has(id)),
+    selectedInstanceId: state.selectedInstanceId && ids.has(state.selectedInstanceId) ? null : state.selectedInstanceId,
+  });
 
 const removeLayer = (state: ImpositionState, layerId: string): ImpositionState => {
   const ids = new Set(state.instances.filter(i => i.layerId === layerId).map(i => i.id));
@@ -64,7 +78,7 @@ export function setLayerTotalCount(state: ImpositionState, layerId: string, tota
   return {
     ...state,
     layers,
-    instances: [...state.instances, ...instancesFor(layerId, total - current.length, newId)],
+    instances: [...state.instances, ...instancesFor(layerId, total - current.length, newId, state.activeSheetId)],
     lastLayoutMessage: LAYOUT_STALE_MESSAGE,
   };
 }
@@ -85,7 +99,9 @@ export function deleteInstance(state: ImpositionState, instanceId: string): Impo
   };
 }
 
-export function autoLayout(state: ImpositionState): ImpositionState {
+export function autoLayout(state: ImpositionState, sizes: readonly SheetSize[], newId: IdFactory): ImpositionState {
+  if (sizes.length === 0) return { ...state, lastLayoutMessage: '請先勾選至少一種版面尺寸。' };
+
   const base = state.allowRotate90 ? state.instances : state.instances.map(i => ({ ...i, rotationDeg: 0 as const }));
   const layerMap = new Map(state.layers.map(l => [l.id, l] as const));
   const rects = base.flatMap(inst => {
@@ -95,18 +111,28 @@ export function autoLayout(state: ImpositionState): ImpositionState {
     return [{ id: inst.id, w: w + state.minGapMm, h: h + state.minGapMm }];
   });
 
-  const result = packWithinBoundary(rects, state.boundaryWidthMm, state.boundaryHeightMm, state.allowRotate90);
-  const placed = new Map(result.placed.map(p => [p.id, p] as const));
+  const result = packIntoSheets(rects, sizes, state.allowRotate90);
+  const sheets = result.sheets.map(s => ({ id: newId(), sizeName: s.sizeName, widthMm: s.widthMm, heightMm: s.heightMm }));
+  const placements = new Map(
+    result.sheets.flatMap((s, index) => s.placed.map(p => [p.id, { sheetId: sheets[index].id, placement: p }] as const)),
+  );
   const instances = base.map(inst => {
-    const p = placed.get(inst.id);
-    return p ? { ...inst, xMm: p.x, yMm: p.y, rotationDeg: p.rotationDeg } : inst;
+    const hit = placements.get(inst.id);
+    return hit
+      ? { ...inst, sheetId: hit.sheetId, xMm: hit.placement.x, yMm: hit.placement.y, rotationDeg: hit.placement.rotationDeg }
+      : { ...inst, sheetId: null };
   });
+
+  const placedCount = instances.length - result.notPlaced.length;
+  const notPlacedNote = result.notPlaced.length > 0 ? `，放不下 ${result.notPlaced.length} 個` : '';
   const rotateNote = state.allowRotate90 ? '（允許 90° 旋轉）' : '';
   return {
     ...state,
+    sheets: sheets.length > 0 ? sheets : state.sheets,
+    activeSheetId: sheets[0]?.id ?? state.activeSheetId,
     instances,
     notPlacedInstanceIds: result.notPlaced,
-    lastLayoutMessage: `排圖完成：塞得進去 ${result.placed.length} 個，塞不進去 ${result.notPlaced.length} 個。${rotateNote}`,
+    lastLayoutMessage: `排圖完成：${sheets.length} 個版面，排入 ${placedCount} 個${notPlacedNote}。${rotateNote}`,
   };
 }
 
@@ -127,3 +153,22 @@ export const setAllowRotate = (state: ImpositionState, allow: boolean): Impositi
   notPlacedInstanceIds: [],
   lastLayoutMessage: LAYOUT_STALE_MESSAGE,
 });
+
+export const selectSheet = (state: ImpositionState, sheetId: string): ImpositionState =>
+  state.sheets.some(s => s.id === sheetId) ? { ...state, activeSheetId: sheetId, selectedInstanceId: null } : state;
+
+/** 該版面已放置項目（含間距）佔版面面積的比例，0–1 */
+export function sheetUsage(state: ImpositionState, sheetId: string): number {
+  const sheet = state.sheets.find(s => s.id === sheetId);
+  if (!sheet) return 0;
+  const layerMap = new Map(state.layers.map(l => [l.id, l] as const));
+  const used = state.instances
+    .filter(i => i.sheetId === sheetId)
+    .reduce((sum, i) => {
+      const layer = layerMap.get(i.layerId);
+      if (!layer) return sum;
+      const { w, h } = layerBoxMm(layer, 0);
+      return sum + (w + state.minGapMm) * (h + state.minGapMm);
+    }, 0);
+  return used / (sheet.widthMm * sheet.heightMm);
+}

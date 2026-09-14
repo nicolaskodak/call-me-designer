@@ -7,11 +7,14 @@ import {
   LAYOUT_STALE_MESSAGE,
   moveInstance,
   selectInstance,
+  selectSheet,
   setAllowRotate,
   setLayerTotalCount,
+  sheetUsage,
   upsertSourceLayer,
 } from './state';
 import { DEFAULT_IMPOSITION_STATE, type ImpositionLayer, type ImpositionState } from './types';
+import { DEFAULT_SHEET_SIZES } from './sheetSizes';
 
 const idGen = () => {
   let n = 0;
@@ -53,8 +56,8 @@ describe('addLayers', () => {
   it('creates one instance per total count at the origin', () => {
     const s = addLayers(DEFAULT_IMPOSITION_STATE, [layer({ totalCount: 2 })], idGen());
     expect(s.instances).toEqual([
-      { id: 'i1', layerId: 'L1', xMm: 0, yMm: 0, rotationDeg: 0 },
-      { id: 'i2', layerId: 'L1', xMm: 0, yMm: 0, rotationDeg: 0 },
+      { id: 'i1', layerId: 'L1', sheetId: DEFAULT_IMPOSITION_STATE.activeSheetId, xMm: 0, yMm: 0, rotationDeg: 0 },
+      { id: 'i2', layerId: 'L1', sheetId: DEFAULT_IMPOSITION_STATE.activeSheetId, xMm: 0, yMm: 0, rotationDeg: 0 },
     ]);
     expect(DEFAULT_IMPOSITION_STATE.instances).toEqual([]);
   });
@@ -119,25 +122,109 @@ describe('upsertSourceLayer', () => {
   });
 });
 
+const SIZES = DEFAULT_SHEET_SIZES;
+
 describe('autoLayout', () => {
-  it('packs in mm with the minimum gap', () => {
+  it('把項目排進版面並記錄相對座標', () => {
     const next = idGen();
     const s = setLayerTotalCount(withLayer(layer(), next), 'L1', 2, next);
-    const laid = autoLayout(s);
+    const laid = autoLayout(s, SIZES, next);
+    expect(laid.sheets).toHaveLength(1);
+    expect(laid.instances.every(i => i.sheetId === laid.sheets[0].id)).toBe(true);
     expect(laid.instances.map(i => [r6(i.xMm), r6(i.yMm)])).toEqual([[0, 0], [103, 0]]);
     expect(laid.notPlacedInstanceIds).toEqual([]);
-    expect(laid.lastLayoutMessage).toBe('排圖完成：塞得進去 2 個，塞不進去 0 個。');
+    expect(laid.lastLayoutMessage).toContain('排圖完成');
   });
 
-  it('reports items that do not fit', () => {
-    const s = { ...withLayer(), boundaryWidthMm: 50, boundaryHeightMm: 50 };
-    expect(autoLayout(s).notPlacedInstanceIds).toEqual(['i1']);
+  it('排不下時自動開新版面', () => {
+    const next = idGen();
+    // 每個 260x190mm，A4 一張只放得下一個
+    const big = layer({ layoutBoxPx: { x: 0, y: 0, width: 260, height: 190 } });
+    const s = setLayerTotalCount(withLayer(big, next), 'L1', 3, next);
+    const laid = autoLayout(s, [{ name: 'A4', widthMm: 297, heightMm: 210 }], next);
+    expect(laid.sheets).toHaveLength(3);
+    expect(new Set(laid.instances.map(i => i.sheetId)).size).toBe(3);
   });
 
-  it('resets rotation when rotation is not allowed', () => {
+  it('比所有尺寸都大的項目標記為放不下且不屬於任何版面', () => {
+    const next = idGen();
+    const huge = layer({ layoutBoxPx: { x: 0, y: 0, width: 2000, height: 2000 } });
+    const laid = autoLayout(withLayer(huge, next), SIZES, next);
+    expect(laid.notPlacedInstanceIds).toHaveLength(1);
+    expect(laid.instances[0].sheetId).toBeNull();
+  });
+
+  it('沒有勾選任何尺寸時不排圖，只提示', () => {
+    const s = withLayer();
+    const laid = autoLayout(s, [], idGen());
+    expect(laid.instances).toEqual(s.instances);
+    expect(laid.lastLayoutMessage).toBe('請先勾選至少一種版面尺寸。');
+  });
+
+  it('不允許旋轉時清掉既有的旋轉', () => {
     const s = withLayer();
     const rotated = { ...s, instances: s.instances.map(i => ({ ...i, rotationDeg: 90 as const })) };
-    expect(autoLayout(rotated).instances[0].rotationDeg).toBe(0);
+    expect(autoLayout(rotated, SIZES, idGen()).instances[0].rotationDeg).toBe(0);
+  });
+
+  it('排圖後把第一張設為當前版面', () => {
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer(), next), SIZES, next);
+    expect(laid.activeSheetId).toBe(laid.sheets[0].id);
+  });
+});
+
+describe('selectSheet', () => {
+  it('切換當前版面並取消選取', () => {
+    const next = idGen();
+    const big = layer({ layoutBoxPx: { x: 0, y: 0, width: 260, height: 190 } });
+    const s = setLayerTotalCount(withLayer(big, next), 'L1', 2, next);
+    const laid = autoLayout(s, [{ name: 'A4', widthMm: 297, heightMm: 210 }], next);
+    const selected = selectInstance(laid, laid.instances[0].id);
+    const switched = selectSheet(selected, laid.sheets[1].id);
+    expect(switched.activeSheetId).toBe(laid.sheets[1].id);
+    expect(switched.selectedInstanceId).toBeNull();
+  });
+
+  it('未知的版面 id 不造成任何改變', () => {
+    const s = withLayer();
+    expect(selectSheet(s, 'nope')).toBe(s);
+  });
+});
+
+describe('sheetUsage', () => {
+  it('回傳 0 到 1 之間的使用率', () => {
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer(), next), SIZES, next);
+    const usage = sheetUsage(laid, laid.sheets[0].id);
+    expect(usage).toBeGreaterThan(0);
+    expect(usage).toBeLessThanOrEqual(1);
+  });
+
+  it('未知的版面 id 回傳 0', () => {
+    expect(sheetUsage(withLayer(), 'nope')).toBe(0);
+  });
+});
+
+describe('刪除項目後回收空版面', () => {
+  it('版面上最後一個項目被刪除時，該版面一併移除', () => {
+    const next = idGen();
+    const big = layer({ layoutBoxPx: { x: 0, y: 0, width: 260, height: 190 } });
+    const s = setLayerTotalCount(withLayer(big, next), 'L1', 2, next);
+    const laid = autoLayout(s, [{ name: 'A4', widthMm: 297, heightMm: 210 }], next);
+    expect(laid.sheets).toHaveLength(2);
+
+    const afterDelete = deleteInstance(laid, laid.instances[0].id);
+    expect(afterDelete.sheets).toHaveLength(1);
+    expect(afterDelete.sheets.some(sheet => sheet.id === afterDelete.activeSheetId)).toBe(true);
+  });
+
+  it('刪光所有項目時保留一張版面，畫布不會空白', () => {
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer(), next), SIZES, next);
+    const empty = setLayerTotalCount(laid, 'L1', 0, next);
+    expect(empty.sheets).toHaveLength(1);
+    expect(empty.activeSheetId).toBe(empty.sheets[0].id);
   });
 });
 
@@ -154,26 +241,29 @@ describe('setAllowRotate', () => {
 
 describe('需要重新排圖的提示', () => {
   it('切換旋轉之後提示要重新排圖，位置維持不動', () => {
-    const laid = autoLayout(withLayer(layer({ totalCount: 2 })));
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer({ totalCount: 2 }), next), SIZES, next);
     const toggled = setAllowRotate(laid, true);
     expect(toggled.lastLayoutMessage).toBe(LAYOUT_STALE_MESSAGE);
     expect(toggled.instances).toEqual(laid.instances);
   });
 
   it('加入圖層之後提示要重新排圖', () => {
-    const laid = autoLayout(withLayer());
-    const added = addLayers(laid, [layer({ id: 'L2' })], idGen());
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer(), next), SIZES, next);
+    const added = addLayers(laid, [layer({ id: 'L2' })], next);
     expect(added.lastLayoutMessage).toBe(LAYOUT_STALE_MESSAGE);
   });
 
   it('改變份數之後提示要重新排圖', () => {
     const next = idGen();
-    const laid = autoLayout(withLayer(layer(), next));
+    const laid = autoLayout(withLayer(layer(), next), SIZES, next);
     expect(setLayerTotalCount(laid, 'L1', 3, next).lastLayoutMessage).toBe(LAYOUT_STALE_MESSAGE);
   });
 
   it('重新排圖之後換回完成訊息', () => {
-    const stale = setAllowRotate(autoLayout(withLayer()), true);
-    expect(autoLayout(stale).lastLayoutMessage).toContain('排圖完成');
+    const next = idGen();
+    const stale = setAllowRotate(autoLayout(withLayer(layer(), next), SIZES, next), true);
+    expect(autoLayout(stale, SIZES, next).lastLayoutMessage).toContain('排圖完成');
   });
 });
