@@ -175,11 +175,13 @@ const App: React.FC = () => {
     setNotice(underPaths.length > 0 ? '已送到 Imposition（含白墨）' : '已送到 Imposition（不含白墨）');
   };
 
-  const exportImposition = (kinds: readonly ImpositionLayerKind[], filename: string) => {
-    downloadImpositionSvg(imposition.state, kinds, exportColors, filename).catch((err: unknown) => {
-      console.error('匯出 Imposition SVG 失敗', err);
-      window.alert('匯出 SVG 失敗，請再試一次。');
-    });
+  const exportImposition = (kinds: readonly ImpositionLayerKind[], baseName: string) => {
+    downloadImpositionSvg(imposition.state, kinds, exportColors, baseName)
+      .then(count => setNotice(count > 1 ? `已匯出 ${count} 個 SVG 檔（每張版面一檔）` : '已匯出 SVG'))
+      .catch((err: unknown) => {
+        console.error('匯出 Imposition SVG 失敗', err);
+        window.alert('匯出 SVG 失敗，請再試一次。');
+      });
   };
 
   const uploadImposition = (files: File[]) => {
@@ -279,9 +281,9 @@ const App: React.FC = () => {
               const z = impositionRef.current?.fitZoom();
               if (z) imposition.update(s => ({ ...s, zoom: z }));
             }}
-            onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers.svg')}
-            onExportCut={() => exportImposition(['cut'], 'imposition-cut.svg')}
-            onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint.svg')}
+            onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers')}
+            onExportCut={() => exportImposition(['cut'], 'imposition-cut')}
+            onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint')}
             onExportPdf={() => {
               impositionRef.current?.exportPDF().catch((err: unknown) => {
                 console.error('匯出 PDF 失敗', err);

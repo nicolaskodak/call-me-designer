@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { blobToDataUrl, buildImpositionSvg, instanceTransform, placedItems } from './exportSvg';
-import { DEFAULT_IMPOSITION_STATE, type ImpositionInstance, type ImpositionLayer } from './types';
+import { blobToDataUrl, buildImpositionSvg, buildSheetSvgs, instanceTransform, placedItems } from './exportSvg';
+import { DEFAULT_IMPOSITION_STATE, type ImpositionInstance, type ImpositionLayer, type ImpositionState } from './types';
 
 const layer = (overrides: Partial<ImpositionLayer> = {}): ImpositionLayer => ({
   id: 'L1',
@@ -109,5 +109,59 @@ describe('buildImpositionSvg', () => {
 describe('blobToDataUrl', () => {
   it('encodes a blob as a data URI', async () => {
     await expect(blobToDataUrl(new Blob(['hi'], { type: 'text/plain' }))).resolves.toBe('data:text/plain;base64,aGk=');
+  });
+});
+
+describe('buildSheetSvgs', () => {
+  const twoSheetState = (): ImpositionState => ({
+    ...DEFAULT_IMPOSITION_STATE,
+    layers: [layer()],
+    sheets: [
+      { id: 's1', sizeName: 'A4', widthMm: 297, heightMm: 210 },
+      { id: 's2', sizeName: 'A3', widthMm: 420, heightMm: 297 },
+    ],
+    activeSheetId: 's1',
+    instances: [
+      inst({ id: 'i1', sheetId: 's1', xMm: 0, yMm: 0 }),
+      inst({ id: 'i2', sheetId: 's2', xMm: 5, yMm: 5 }),
+      inst({ id: 'i3', sheetId: null, xMm: 0, yMm: 0 }),
+    ],
+  });
+
+  it('每張版面產生一個檔，檔名依序編號', () => {
+    const files = buildSheetSvgs({
+      state: twoSheetState(),
+      kinds: ['cut'],
+      colors,
+      imageDataUrls: new Map(),
+      baseName: 'imposition-cut',
+    });
+    expect(files.map(f => f.filename)).toEqual(['imposition-cut-1.svg', 'imposition-cut-2.svg']);
+  });
+
+  it('每個檔使用自己版面的尺寸', () => {
+    const files = buildSheetSvgs({
+      state: twoSheetState(),
+      kinds: ['cut'],
+      colors,
+      imageDataUrls: new Map(),
+      baseName: 'x',
+    });
+    expect(files[0].svg).toContain('width="297mm"');
+    expect(files[1].svg).toContain('width="420mm"');
+  });
+
+  it('沒有項目的版面不產生檔案', () => {
+    const state = twoSheetState();
+    const only = { ...state, instances: state.instances.filter(i => i.sheetId === 's1') };
+    const files = buildSheetSvgs({
+      state: only,
+      kinds: ['cut'],
+      colors,
+      imageDataUrls: new Map(),
+      baseName: 'x',
+    });
+    expect(files).toHaveLength(1);
+    expect(files[0].filename).toBe('x-1.svg');
   });
 });

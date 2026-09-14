@@ -85,3 +85,31 @@ export function buildImpositionSvg(o: {
     `${body}\n</svg>\n`
   );
 }
+
+export interface SheetSvgFile {
+  filename: string;
+  svg: string;
+}
+
+/** 每張有項目的版面產生一個 SVG；編號依版面順序，跳過空版面不會造成號碼跳號 */
+export function buildSheetSvgs(o: {
+  state: ImpositionState;
+  kinds: readonly ImpositionLayerKind[];
+  colors: { cut: string; underprint: string };
+  imageDataUrls: ReadonlyMap<string, string>;
+  baseName: string;
+}): SheetSvgFile[] {
+  return o.state.sheets.flatMap(sheet => {
+    const items = placedItems(o.state, sheet.id);
+    if (items.length === 0) return [];
+    const svg = buildImpositionSvg({
+      widthMm: sheet.widthMm,
+      heightMm: sheet.heightMm,
+      items,
+      kinds: o.kinds,
+      colors: o.colors,
+      imageDataUrls: o.imageDataUrls,
+    });
+    return [{ svg, filename: '' }];
+  }).map((file, index) => ({ ...file, filename: `${o.baseName}-${index + 1}.svg` }));
+}

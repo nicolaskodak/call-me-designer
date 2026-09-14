@@ -183,16 +183,15 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
           <div className="p-2 rounded bg-neutral-900 border border-neutral-700 text-[10px] text-neutral-300">{state.lastLayoutMessage}</div>
         ) : null}
       </Section>
-      <Section title="匯出（目前版面）">
-        <div className="text-[10px] text-neutral-500">目前一次只匯出當前版面，多檔匯出於下一階段提供。</div>
+      <Section title="匯出">
         <ActionButton variant="primary" onClick={props.onExportLayers} disabled={placedCount === 0} testId="export-imposition-layers">
-          <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模）
+          <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模，每張版面一檔）
         </ActionButton>
         <ActionButton onClick={props.onExportCut} disabled={placedCount === 0} testId="export-imposition-cut">
-          <Download className="w-3 h-3" /> 只有刀模 SVG
+          <Download className="w-3 h-3" /> 只有刀模 SVG（每張版面一檔）
         </ActionButton>
         <ActionButton onClick={props.onExportUnderprint} disabled={placedCount === 0 || !hasUnderprint} testId="export-imposition-underprint">
-          <Download className="w-3 h-3" /> 只有白墨 SVG
+          <Download className="w-3 h-3" /> 只有白墨 SVG（每張版面一檔）
         </ActionButton>
         <ActionButton onClick={props.onExportPdf} disabled={placedCount === 0} testId="export-imposition-pdf">
           <FileText className="w-3 h-3" /> PDF 預覽（點陣）
