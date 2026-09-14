@@ -7,8 +7,14 @@ import { CSS_PX_PER_MM, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
 import { SheetTabs } from './SheetTabs';
 
-/** 'skipped'：被重入防護擋下，或當下沒有可匯出的版面，什麼都沒做——呼叫端不能把它當成「已匯出」來宣告成功 */
-export type ExportPdfResult = 'exported' | 'skipped';
+/**
+ * exportPDF 的結束方式，呼叫端必須依此決定誰該清「匯出中」的旗標：
+ * - 'exported'：真的匯出了，由呼叫端顯示成功並清旗標。
+ * - 'skipped-busy'：被重入防護擋下——有另一次呼叫正在跑，旗標屬於它，這次呼叫不清。
+ * - 'nothing-to-export'：目前沒有任何呼叫在跑，只是沒有可匯出的版面；沒有其他呼叫會清這個旗標，
+ *   這次呼叫必須自己清，否則旗標永遠不會歸零、按鈕永遠停用。
+ */
+export type ExportPdfResult = 'exported' | 'skipped-busy' | 'nothing-to-export';
 
 export interface ImpositionCanvasHandle {
   exportPDF(onProgress?: (done: number, total: number) => void): Promise<ExportPdfResult>;
@@ -250,14 +256,22 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
     exportPDF: async (onProgress?: (done: number, total: number) => void) => {
       // 重入防護：正在匯出時再次呼叫直接不做事，避免兩個呼叫共用同一份 stageRefs／stage
       // ——先跑完的那個在 finally 清空暫存區，會讓還在跑的那個拿不到元素而悄悄漏頁。
-      // 回傳 'skipped' 而不是直接 resolve：呼叫端必須能分辨「這次真的匯出了」與
+      // 回傳 'skipped-busy' 而不是直接 resolve：呼叫端必須能分辨「這次真的匯出了」與
       // 「這次被擋下、什麼都沒做」，否則被擋下的呼叫會提早宣告成功、提早清掉
       // 「匯出中」的旗標，讓使用者在真正的匯出還沒完成時就以為結束了。
-      if (exportingRef.current) return 'skipped';
+      // 這次呼叫沒有做任何事，「匯出中」的旗標屬於正在跑的那次呼叫，不由這裡清除。
+      if (exportingRef.current) return 'skipped-busy';
       exportingRef.current = true;
       try {
         const sheets = sheetsWithContent(state);
-        if (sheets.length === 0) return 'skipped';
+        // 目前不可達：按鈕的 hasExportableItems 只檢查「有 instance 掛在某張版面」，
+        // sheetsWithContent 額外要求該 instance 引用的圖層還存在——reducer 保證
+        // instance 一定引用著存在的圖層，所以兩者實際上不會分岔。但這個保證來自
+        // 別處（reducer 的不變式），不是這段程式碼自己保證的；一旦那個不變式未來
+        // 改變，這裡就會是「沒有任何呼叫在跑」的情況，若沿用 'skipped-busy' 的語意
+        // （旗標由別人清）就會沒有人清旗標，PDF 按鈕永久停用。所以獨立用
+        // 'nothing-to-export' 表示「沒事做，但旗標由我自己清」。
+        if (sheets.length === 0) return 'nothing-to-export';
         // 在按下的當下把要匯出的內容整包凍結成快照，避免匯出途中使用者的操作
         // （拖曳、刪除、切換顯示、重新排圖、改色）讓還沒截圖的版面讀到不一致的資料
         const snapshot: StageSnapshot = {

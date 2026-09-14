@@ -291,14 +291,15 @@ const App: React.FC = () => {
               impositionRef.current
                 ?.exportPDF((done, total) => setNotice(`正在產生 PDF：${done} / ${total} 頁`))
                 .then(result => {
-                  // 'skipped'：這次呼叫被重入防護擋下（或當下沒有可匯出的版面），什麼都沒做——
-                  // 不能顯示「PDF 已匯出」，也不能清 isPdfExporting，那個旗標屬於還在跑的那次呼叫，
-                  // 該由它自己的 'exported' 分支清除，否則使用者會在真正的匯出還沒完成時就以為結束了，
-                  // 而且按鈕會提早解除停用。
-                  if (result === 'exported') {
-                    setNotice('PDF 已匯出');
-                    setIsPdfExporting(false);
-                  }
+                  // 「不清旗標」是例外，只有一個理由能豁免：'skipped-busy' 表示這次呼叫被
+                  // 重入防護擋下，旗標屬於還在跑的那次呼叫，該由它自己的 'exported' 分支清除
+                  // ——這裡若跟著清，會在真正的匯出還沒完成時就讓按鈕提早解除停用。
+                  // 除此之外的每一條結束路徑都必須清旗標：'exported' 是正常完成；
+                  // 'nothing-to-export' 代表這次呼叫本身沒有任何人在跑，若不清，
+                  // 旗標永遠不會歸零、按鈕會永久停用。
+                  if (result === 'skipped-busy') return;
+                  if (result === 'exported') setNotice('PDF 已匯出');
+                  setIsPdfExporting(false);
                 })
                 .catch((err: unknown) => {
                   console.error('匯出 PDF 失敗', err);
