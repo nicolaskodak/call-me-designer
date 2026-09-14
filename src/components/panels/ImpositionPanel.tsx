@@ -1,6 +1,7 @@
 import { Download, FileText, Upload } from 'lucide-react';
 import React from 'react';
 import { useFileDrop } from '../../hooks/useFileDrop';
+import { placedItems } from '../../imposition/exportSvg';
 import { layerBoxMm, setAllowRotate } from '../../imposition/state';
 import { ZOOM_OPTIONS, type ImpositionShow, type ImpositionState } from '../../imposition/types';
 import { formatMm } from '../../units';
@@ -114,7 +115,8 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   const hasUnderprint = state.layers.some(l => l.underprint);
   const zoomOptions = zoomOptionsFor(state.zoom);
   const notPlacedCount = state.instances.filter(i => i.sheetId === null).length;
-  const placedCount = state.instances.length - notPlacedCount;
+  // 與 placedItems（真正決定「匯出得出什麼」的同一份邏輯）共用判準，避免面板另外維護一份會分家的算法
+  const placedCount = placedItems(state).length;
   const notPlacedWarnings = notPlacedCount > 0
     ? [`有 ${notPlacedCount} 個項目比所有可用的版面尺寸都大，沒有排入任何版面。`]
     : [];

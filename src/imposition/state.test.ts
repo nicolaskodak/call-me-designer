@@ -238,10 +238,13 @@ describe('setAllowRotate', () => {
     expect(setAllowRotate(rotated, true).instances[0].rotationDeg).toBe(90);
   });
 
-  // 回歸測試：setAllowRotate 會清空 notPlacedInstanceIds，但不會、也不該改動 sheetId。
-  // 可匯出數量必須永遠以 sheetId !== null 為準，不能沿用已經清空的 notPlacedInstanceIds，
-  // 否則會出現「按鈕亮起但匯出什麼都沒有」的情形。
-  it('切換旋轉後，sheetId 為 null 的項目仍然不可匯出，即使 notPlacedInstanceIds 已被清空', () => {
+  // 狀態層不變式：setAllowRotate 會清空 notPlacedInstanceIds（它只代表「上次排圖的結果過期」），
+  // 但不會、也不該改動 sheetId——sheetId 才是「這個項目屬於哪個版面」的唯一事實來源。
+  // 注意：這個測試只守住 state.ts 這一層的不變式，不會經過 ImpositionPanel.tsx 的程式碼路徑，
+  // 不能拿它來保證「面板算出的可匯出數量」正確；那個判準已改成直接呼叫 exportSvg.ts 的
+  // placedItems(state).length（見 ImpositionPanel.tsx），與此處驗證的 sheetId 事實共用同一份實作，
+  // 不再各自維護一份會分家的邏輯。
+  it('切換旋轉後，sheetId 不受 notPlacedInstanceIds 被清空影響', () => {
     const next = idGen();
     const huge = layer({ layoutBoxPx: { x: 0, y: 0, width: 2000, height: 2000 } });
     const laid = autoLayout(withLayer(huge, next), SIZES, next);
@@ -250,10 +253,7 @@ describe('setAllowRotate', () => {
 
     const toggled = setAllowRotate(laid, true);
     expect(toggled.notPlacedInstanceIds).toEqual([]);
-    // sheetId 判準才是唯一可信來源，不受 notPlacedInstanceIds 被清空影響
     expect(toggled.instances[0].sheetId).toBeNull();
-    const exportableCount = toggled.instances.filter(i => i.sheetId !== null).length;
-    expect(exportableCount).toBe(0);
   });
 });
 
