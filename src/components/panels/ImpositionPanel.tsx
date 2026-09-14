@@ -2,6 +2,7 @@ import { Download, FileText, Upload } from 'lucide-react';
 import React from 'react';
 import { useFileDrop } from '../../hooks/useFileDrop';
 import { placedItems } from '../../imposition/exportSvg';
+import { MAX_SHEETS } from '../../imposition/sheets';
 import { layerBoxMm, setAllowRotate } from '../../imposition/state';
 import { ZOOM_OPTIONS, type ImpositionShow, type ImpositionState } from '../../imposition/types';
 import { formatMm } from '../../units';
@@ -115,10 +116,15 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   const hasUnderprint = state.layers.some(l => l.underprint);
   const zoomOptions = zoomOptionsFor(state.zoom);
   const notPlacedCount = state.instances.filter(i => i.sheetId === null).length;
-  // 與 placedItems（真正決定「匯出得出什麼」的同一份邏輯）共用判準，避免面板另外維護一份會分家的算法
-  const placedCount = placedItems(state).length;
+  // 按鈕要反映「目前這張版面有沒有東西可匯出」，所以只算當前版面，
+  // 與 exportFile.ts 匯出時呼叫 placedItems(state, sheet.id) 用同一個判準
+  const placedCount = placedItems(state, state.activeSheetId).length;
+  // sheetId 為 null 有兩種成因：項目比所有尺寸都大，或版面數已達上限，這裡不猜測是哪一種
   const notPlacedWarnings = notPlacedCount > 0
-    ? [`有 ${notPlacedCount} 個項目比所有可用的版面尺寸都大，沒有排入任何版面。`]
+    ? [
+        `有 ${notPlacedCount} 個項目沒有排入任何版面。`,
+        ...(state.sheets.length >= MAX_SHEETS ? [`版面數已達上限 ${MAX_SHEETS} 張，多出的項目無法排入。`] : []),
+      ]
     : [];
 
   return (
@@ -147,7 +153,8 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
           <div className="p-2 rounded bg-neutral-900 border border-neutral-700 text-[10px] text-neutral-300">{state.lastLayoutMessage}</div>
         ) : null}
       </Section>
-      <Section title="匯出（排除塞不進的項目）">
+      <Section title="匯出（目前版面）">
+        <div className="text-[10px] text-neutral-500">目前一次只匯出當前版面，多檔匯出於下一階段提供。</div>
         <ActionButton variant="primary" onClick={props.onExportLayers} disabled={placedCount === 0} testId="export-imposition-layers">
           <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模）
         </ActionButton>

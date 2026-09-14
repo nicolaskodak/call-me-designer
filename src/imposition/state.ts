@@ -25,7 +25,6 @@ export function addLayers(state: ImpositionState, layers: readonly ImpositionLay
       ...state.instances,
       ...layers.flatMap(l => instancesFor(l.id, Math.max(1, l.totalCount), newId, state.activeSheetId)),
     ],
-    notPlacedInstanceIds: [],
     // 新項目都疊在 (0,0)，提示使用者重新排圖
     lastLayoutMessage: LAYOUT_STALE_MESSAGE,
   };
@@ -38,7 +37,6 @@ export function upsertSourceLayer(state: ImpositionState, incoming: ImpositionLa
     ...state,
     layers: state.layers.map(l => (l.id === existing.id ? { ...incoming, id: existing.id, totalCount: existing.totalCount } : l)),
     // 外框可能改變，需要重新排圖
-    notPlacedInstanceIds: [],
     lastLayoutMessage: LAYOUT_STALE_MESSAGE,
   };
 }
@@ -56,7 +54,6 @@ const removeInstances = (state: ImpositionState, ids: ReadonlySet<string>): Impo
   pruneEmptySheets({
     ...state,
     instances: state.instances.filter(i => !ids.has(i.id)),
-    notPlacedInstanceIds: state.notPlacedInstanceIds.filter(id => !ids.has(id)),
     selectedInstanceId: state.selectedInstanceId && ids.has(state.selectedInstanceId) ? null : state.selectedInstanceId,
   });
 
@@ -128,10 +125,11 @@ export function autoLayout(state: ImpositionState, sizes: readonly SheetSize[], 
   const rotateNote = state.allowRotate90 ? '（允許 90° 旋轉）' : '';
   return {
     ...state,
-    sheets: sheets.length > 0 ? sheets : state.sheets,
+    // 排不出任何版面時（例如全部項目都放不下），保留一張舊版面，畫布才不會空白；
+    // 與 pruneEmptySheets「至少保留一張」的既有不變式一致
+    sheets: sheets.length > 0 ? sheets : state.sheets.slice(0, 1),
     activeSheetId: sheets[0]?.id ?? state.activeSheetId,
     instances,
-    notPlacedInstanceIds: result.notPlaced,
     lastLayoutMessage: `排圖完成：${sheets.length} 個版面，排入 ${placedCount} 個${notPlacedNote}。${rotateNote}`,
   };
 }
@@ -150,7 +148,6 @@ export const setAllowRotate = (state: ImpositionState, allow: boolean): Impositi
   ...state,
   allowRotate90: allow,
   instances: allow ? state.instances : state.instances.map(i => ({ ...i, rotationDeg: 0 as const })),
-  notPlacedInstanceIds: [],
   lastLayoutMessage: LAYOUT_STALE_MESSAGE,
 });
 

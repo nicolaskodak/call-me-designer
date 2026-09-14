@@ -63,7 +63,6 @@ export interface ImpositionState {
   sheets: ImpositionSheet[];
   activeSheetId: string;
   selectedInstanceId: string | null;
-  notPlacedInstanceIds: string[];
   lastLayoutMessage: string | null;
 }
 
@@ -79,7 +78,6 @@ export const DEFAULT_IMPOSITION_STATE: ImpositionState = {
   sheets: [DEFAULT_SHEET],
   activeSheetId: DEFAULT_SHEET.id,
   selectedInstanceId: null,
-  notPlacedInstanceIds: [],
   lastLayoutMessage: null,
 };
 

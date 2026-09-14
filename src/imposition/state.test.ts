@@ -112,13 +112,12 @@ describe('upsertSourceLayer', () => {
   it('replaces the same source in place, keeping id, total and positions', () => {
     const next = idGen();
     const first = setLayerTotalCount(upsertSourceLayer(DEFAULT_IMPOSITION_STATE, layer({ sourceId: 'src' }), next), 'L1', 3, next);
-    const moved = { ...moveInstance(first, first.instances[0].id, 10, 20), notPlacedInstanceIds: [first.instances[2].id] };
+    const moved = moveInstance(first, first.instances[0].id, 10, 20);
 
     const replaced = upsertSourceLayer(moved, layer({ id: 'L2', sourceId: 'src', widthPx: 999 }), next);
     expect(replaced.layers).toHaveLength(1);
     expect(replaced.layers[0]).toMatchObject({ id: 'L1', totalCount: 3, widthPx: 999 });
     expect(replaced.instances[0]).toMatchObject({ xMm: 10, yMm: 20 });
-    expect(replaced.notPlacedInstanceIds).toEqual([]);
   });
 });
 
@@ -132,7 +131,6 @@ describe('autoLayout', () => {
     expect(laid.sheets).toHaveLength(1);
     expect(laid.instances.every(i => i.sheetId === laid.sheets[0].id)).toBe(true);
     expect(laid.instances.map(i => [r6(i.xMm), r6(i.yMm)])).toEqual([[0, 0], [103, 0]]);
-    expect(laid.notPlacedInstanceIds).toEqual([]);
     expect(laid.lastLayoutMessage).toContain('排圖完成');
   });
 
@@ -150,7 +148,7 @@ describe('autoLayout', () => {
     const next = idGen();
     const huge = layer({ layoutBoxPx: { x: 0, y: 0, width: 2000, height: 2000 } });
     const laid = autoLayout(withLayer(huge, next), SIZES, next);
-    expect(laid.notPlacedInstanceIds).toHaveLength(1);
+    expect(laid.lastLayoutMessage).toContain('放不下 1 個');
     expect(laid.instances[0].sheetId).toBeNull();
   });
 
@@ -171,6 +169,21 @@ describe('autoLayout', () => {
     const next = idGen();
     const laid = autoLayout(withLayer(layer(), next), SIZES, next);
     expect(laid.activeSheetId).toBe(laid.sheets[0].id);
+  });
+
+  it('重排後一個都放不下時，保留一張舊版面，不留下一堆空版面', () => {
+    const next = idGen();
+    const big = layer({ layoutBoxPx: { x: 0, y: 0, width: 260, height: 190 } });
+    const s = setLayerTotalCount(withLayer(big, next), 'L1', 3, next);
+    const laid = autoLayout(s, [{ name: 'A4', widthMm: 297, heightMm: 210 }], next);
+    expect(laid.sheets.length).toBeGreaterThan(1);
+
+    // 間距調到誇張大，讓所有項目都放不下任何版面
+    const relaid = autoLayout({ ...laid, minGapMm: 1000 }, [{ name: 'A4', widthMm: 297, heightMm: 210 }], next);
+    expect(relaid.sheets).toHaveLength(1);
+    expect(relaid.sheets[0]).toBe(laid.sheets[0]);
+    expect(relaid.instances.every(i => i.sheetId === null)).toBe(true);
+    expect(relaid.activeSheetId).toBe(relaid.sheets[0].id);
   });
 });
 
@@ -231,28 +244,21 @@ describe('刪除項目後回收空版面', () => {
 describe('setAllowRotate', () => {
   it('clears rotations and layout results when disabled', () => {
     const s = withLayer();
-    const rotated = { ...s, allowRotate90: true, instances: s.instances.map(i => ({ ...i, rotationDeg: 90 as const })), notPlacedInstanceIds: ['x'] };
+    const rotated = { ...s, allowRotate90: true, instances: s.instances.map(i => ({ ...i, rotationDeg: 90 as const })) };
     const next = setAllowRotate(rotated, false);
     expect(next.instances[0].rotationDeg).toBe(0);
-    expect(next.notPlacedInstanceIds).toEqual([]);
     expect(setAllowRotate(rotated, true).instances[0].rotationDeg).toBe(90);
   });
 
-  // 狀態層不變式：setAllowRotate 會清空 notPlacedInstanceIds（它只代表「上次排圖的結果過期」），
-  // 但不會、也不該改動 sheetId——sheetId 才是「這個項目屬於哪個版面」的唯一事實來源。
-  // 注意：這個測試只守住 state.ts 這一層的不變式，不會經過 ImpositionPanel.tsx 的程式碼路徑，
-  // 不能拿它來保證「面板算出的可匯出數量」正確；那個判準已改成直接呼叫 exportSvg.ts 的
-  // placedItems(state).length（見 ImpositionPanel.tsx），與此處驗證的 sheetId 事實共用同一份實作，
-  // 不再各自維護一份會分家的邏輯。
-  it('切換旋轉後，sheetId 不受 notPlacedInstanceIds 被清空影響', () => {
+  // 狀態層不變式：setAllowRotate 只碰 rotationDeg 與 lastLayoutMessage，不會、也不該改動
+  // sheetId——sheetId 才是「這個項目屬於哪個版面」的唯一事實來源。
+  it('切換旋轉不會改動任何項目的 sheetId', () => {
     const next = idGen();
     const huge = layer({ layoutBoxPx: { x: 0, y: 0, width: 2000, height: 2000 } });
     const laid = autoLayout(withLayer(huge, next), SIZES, next);
-    expect(laid.notPlacedInstanceIds).toHaveLength(1);
     expect(laid.instances[0].sheetId).toBeNull();
 
     const toggled = setAllowRotate(laid, true);
-    expect(toggled.notPlacedInstanceIds).toEqual([]);
     expect(toggled.instances[0].sheetId).toBeNull();
   });
 });
