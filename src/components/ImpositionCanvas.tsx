@@ -27,8 +27,15 @@ import { SheetTabs } from './SheetTabs';
 export type ExportPdfResult = 'exported' | 'skipped-busy' | 'nothing-to-export';
 
 export interface ImpositionCanvasHandle {
-  /** onProgress 的 label 是該層的繁中名稱（原圖／白墨／刀模），done／total 是該層目前的截圖進度 */
-  exportPDF(onProgress?: (label: string, done: number, total: number) => void): Promise<ExportPdfResult>;
+  /**
+   * onProgress 的 label 是該層的繁中名稱（原圖／白墨／刀模），done／total 是該層目前的截圖進度，
+   * layerIndex／layerCount 是「這是第幾層／總共幾層」——分層匯出每層各自的 done/total 都會
+   * 從 1 重新算起，只看 done/total 會像是「白墨 2/5 頁」出現三輪、進度看起來倒退，
+   * 呼叫端要把 layerIndex/layerCount 一起顯示才看得出這是三輪裡的第幾輪，而不是真的倒退。
+   */
+  exportPDF(
+    onProgress?: (label: string, done: number, total: number, layerIndex: number, layerCount: number) => void,
+  ): Promise<ExportPdfResult>;
   /** 讓整個版面剛好放進目前的視窗；還沒掛上 DOM 時回傳 null */
   fitZoom(): number | null;
 }
@@ -209,18 +216,36 @@ function SheetBoard(props: SheetBoardProps) {
 /** 等兩次 rAF，確保 React 剛掛上的暫存區已經完成排版 */
 const nextPaint = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
-async function captureSheet(el: HTMLDivElement, widthMm: number): Promise<string> {
+export async function captureSheet(el: HTMLDivElement, widthMm: number): Promise<string> {
   const { default: html2canvas } = await import('html2canvas');
   const cssPxPerMm = el.offsetWidth / widthMm;
   if (!Number.isFinite(cssPxPerMm) || cssPxPerMm <= 0) throw new Error('版面尚未排版完成，無法匯出');
   const scale = Math.max(1, Math.min(MAX_CANVAS_PX / Math.max(el.offsetWidth, el.offsetHeight), PDF_DPI / MM_PER_INCH / cssPxPerMm));
   const prevBg = el.style.backgroundColor;
+  const prevBorderWidth = el.style.borderWidth;
+  const prevBorderRadius = el.style.borderRadius;
+  // SheetBoard 的虛線外框與圓角只是畫面上給使用者辨識版面邊界用的裝飾，截進 PDF 會有三個問題：
+  // 1. 虛線顏色（border-neutral-700）在版面邊緣多一圈假墨，白墨那份分色版尤其明顯；
+  // 2. 圓角配合 overflow: hidden 會切掉貼齊版面邊緣的滿版項目；
+  // 3. 全域 box-sizing: border-box 下，2px 邊框讓內容（絕對定位的子項目以 padding box
+  //    為原點）相對於版面外框內縮約 borderWidthPx，跟直接算 mm 座標、不受 CSS 邊框影響的
+  //    SVG 匯出之間出現系統性偏移。
+  // 直接把 border-width 歸零（而不是 border-style: none）：兩者在真實瀏覽器都能讓
+  // border-width 的計算值變 0、消除視覺上的邊框與版面內縮，但 border-style: none 在
+  // jsdom 的 CSSOM 實作裡會把整組 border 相關屬性一起清空、讀不回 'none'，讓這裡的
+  // 單元測試（見 ImpositionCanvas.test.tsx）量不到「有沒有真的中性化」；border-width
+  // 是一般的長度值，兩邊都能可靠讀寫，且同樣完全消除邊框的視覺與版面配置效果。
+  // 截圖前中性化、截完照樣還原，畫面上的虛線外框與圓角不受影響。
   el.style.backgroundColor = 'transparent';
+  el.style.borderWidth = '0px';
+  el.style.borderRadius = '0px';
   try {
     const canvas = await html2canvas(el, { backgroundColor: null, scale, useCORS: true });
     return canvas.toDataURL('image/png');
   } finally {
     el.style.backgroundColor = prevBg;
+    el.style.borderWidth = prevBorderWidth;
+    el.style.borderRadius = prevBorderRadius;
   }
 }
 
@@ -279,7 +304,9 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   useWindowMouse(pan !== null, onPanMove, () => setPan(null));
 
   useImperativeHandle(ref, () => ({
-    exportPDF: async (onProgress?: (label: string, done: number, total: number) => void) => {
+    exportPDF: async (
+      onProgress?: (label: string, done: number, total: number, layerIndex: number, layerCount: number) => void,
+    ) => {
       // 重入防護：正在匯出時再次呼叫直接不做事，避免兩個呼叫共用同一份 stageRefs／stage
       // ——先跑完的那個在 finally 清空暫存區，會讓還在跑的那個拿不到元素而悄悄漏頁。
       // 回傳 'skipped-busy' 而不是直接 resolve：呼叫端必須能分辨「這次真的匯出了」與
@@ -321,10 +348,12 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
               sheets: sheetInstances,
               layerById,
               show: { artwork: kind === 'artwork', underprint: kind === 'underprint', cut: kind === 'cut' },
-              // 白墨要給印刷廠，分色版的慣例是「有墨處為黑」，而且必須是實墨（不透明度 1），
-              // 不能沿用畫面上為了讓使用者看穿疊圖而調的 0.8——pdfLayerColors 只覆寫這一層
-              // 截圖用的顏色／不透明度，其餘層（原圖／刀模）照設定色走，頁面底色也維持白色
-              // （見 buildSheetsPdf）；畫面即時畫布不呼叫這個函式，0.8 的顯示行為不受影響
+              // 白墨要給印刷廠：內容本來就是白色，顏色照設定值走，不覆寫成黑色或任何固定色
+              // ——檢視困難是呈現方式的問題（見面板上的提示文案），不是資料該被竄改。
+              // 唯一要覆寫的是不透明度：印刷分色版必須是實墨，不能沿用畫面上為了讓使用者
+              // 看穿疊圖而調的 0.8——pdfLayerColors 只覆寫這一輪暫存區截圖用的不透明度，
+              // 其餘層（原圖／刀模）與頁面底色（見 buildSheetsPdf）都不受影響；
+              // 畫面即時畫布不呼叫這個函式，0.8 的顯示行為不受影響
               colors: pdfLayerColors(kind, colors),
             };
             setStage(snapshot);
@@ -335,7 +364,7 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
               // 預期存在卻拿不到 el 一律視為失敗：安靜跳過會少一頁卻不會被任何人發現
               if (!el) throw new Error(`版面 ${s.id} 的暫存區元素不存在，無法匯出`);
               pages.push({ dataUrl: await captureSheet(el, s.widthMm), widthMm: s.widthMm, heightMm: s.heightMm });
-              onProgress?.(KIND_LABELS[kind], index + 1, snapshot.sheets.length);
+              onProgress?.(KIND_LABELS[kind], index + 1, snapshot.sheets.length, kindIndex + 1, kinds.length);
             }
             // 走到這裡 snapshot.sheets.length 必然 > 0（前面已經 return 'nothing-to-export'），
             // 迴圈裡缺 el 也一律 throw，所以 pages.length 必然等於版面數：這個檢查理論上
