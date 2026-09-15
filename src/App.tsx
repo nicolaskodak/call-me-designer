@@ -23,7 +23,7 @@ import { SettingsPage } from './components/panels/SettingsPage';
 import { useEditorSlot, type EditorSlot } from './hooks/useEditorSlot';
 import { useBackgroundRemoval } from './hooks/useBackgroundRemoval';
 import { useBlockWindowFileDrop } from './hooks/useFileDrop';
-import { useGeometry } from './hooks/useGeometry';
+import { isGeometryPending, useGeometry } from './hooks/useGeometry';
 import { useGeometryClient } from './hooks/useGeometryClient';
 import { useImposition } from './hooks/useImposition';
 import { useSourceImage } from './hooks/useSourceImage';
@@ -103,6 +103,9 @@ const App: React.FC = () => {
   );
   const underGeometry = useGeometry(client, 'underprint', imageId, underParamsPx);
   const under = useEditorSlot();
+  // 共用同一個值餵給 CutlinePanel 與 UnderprintPanel 的「送到 Imposition」保護，
+  // 不要兩邊各自從 underGeometry.status 重新算一次（理由見 isGeometryPending 的註解）
+  const underprintGeometryPending = isGeometryPending(underGeometry.status);
 
   const imposition = useImposition(activeTab === 'imposition', settings.defaultDpi, settings.sheetSizes);
   const [notice, setNotice] = useState<string | null>(null);
@@ -293,6 +296,8 @@ const App: React.FC = () => {
               onExportTrimmed={() => exportCut('trimmed')}
               onExportPdf={exportPdf}
               onSendToImposition={sendToImposition}
+              underprintEnabled={underprintEnabled}
+              underprintPending={underprintGeometryPending}
             />
           </>
         ) : null}

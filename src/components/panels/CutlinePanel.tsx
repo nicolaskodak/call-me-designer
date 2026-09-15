@@ -35,6 +35,10 @@ export interface CutlinePanelProps {
   onExportTrimmed: () => void;
   onExportPdf: () => void;
   onSendToImposition?: () => void;
+  /** 白墨是否已啟用（使用者去過 Underprint 分頁）；未啟用時完全不受白墨計算狀態影響 */
+  underprintEnabled: boolean;
+  /** 白墨幾何是否還沒算完（見 isGeometryPending）；只有在 underprintEnabled 也是 true 時才有意義 */
+  underprintPending: boolean;
 }
 
 function GenerationSection({ params, onParamsChange }: Pick<CutlinePanelProps, 'params' | 'onParamsChange'>) {
@@ -86,6 +90,11 @@ function StatusSection({ geometry, dpi }: { geometry: GeometryState; dpi: number
 export function CutlinePanel(props: CutlinePanelProps) {
   const { params, onParamsChange, geometry, dpi, hasSource } = props;
   const smoothHint = dpi ? `可能偏移約 ${formatMm(pxToMm(params.smoothness, dpi), 2)}` : undefined;
+  // 已啟用白墨、但白墨幾何還沒算完時，這顆按鈕一樣會用 getPathData() 拿到還沒更新的
+  // 空陣列，把圖層永久定型成「沒有白墨」——跟 UnderprintPanel 的 send-to-imposition-under
+  // 是同一個競態，只是這裡是從 Editor 分頁觸發。未啟用白墨（使用者根本不要白墨）時
+  // 完全不受白墨計算狀態影響，正常流程不會被誤擋。
+  const blockedByUnderprint = props.underprintEnabled && props.underprintPending;
   return (
     <>
       <GenerationSection params={params} onParamsChange={onParamsChange} />
@@ -112,9 +121,19 @@ export function CutlinePanel(props: CutlinePanelProps) {
           <FileText className="w-3 h-3" /> 匯出 PDF
         </ActionButton>
         {props.onSendToImposition ? (
-          <ActionButton variant="primary" onClick={props.onSendToImposition} disabled={!hasSource} testId="send-to-imposition-cut">
-            <Send className="w-3 h-3" /> 送到 Imposition
-          </ActionButton>
+          <>
+            <ActionButton
+              variant="primary"
+              onClick={props.onSendToImposition}
+              disabled={!hasSource || blockedByUnderprint}
+              testId="send-to-imposition-cut"
+            >
+              <Send className="w-3 h-3" /> 送到 Imposition
+            </ActionButton>
+            {hasSource && blockedByUnderprint ? (
+              <p className="text-[10px] text-neutral-500" data-testid="underprint-pending-hint">白墨計算中，請稍候…</p>
+            ) : null}
+          </>
         ) : null}
       </Section>
     </>

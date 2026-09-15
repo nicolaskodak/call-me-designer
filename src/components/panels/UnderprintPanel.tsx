@@ -1,7 +1,7 @@
 import { Download, Send } from 'lucide-react';
 import React from 'react';
 import type { UnderprintParams } from '../../geometry/types';
-import type { GeometryState } from '../../hooks/useGeometry';
+import { isGeometryPending, type GeometryState } from '../../hooks/useGeometry';
 import type { DisplayStyle } from '../../types';
 import { formatMm, pxToMm } from '../../units';
 import { EditSection } from './EditSection';
@@ -43,11 +43,18 @@ export function UnderprintPanel(props: UnderprintPanelProps) {
   const { params, onParamsChange, geometry, dpi, hasSource } = props;
   const smoothHint = dpi ? `可能偏移約 ${formatMm(pxToMm(params.smoothness, dpi), 2)}` : undefined;
   const stats = geometry.result?.stats;
-  // 白墨幾何還沒算完（idle：剛切到這頁、debounce 還沒觸發／processing：正在算）時停用
-  // 「送到 Imposition」：這個按鈕會把 editor 當下的 getPathData() 定型存進拼版圖層，
-  // 太早按會拿到還沒更新的空陣列，永久定型成「沒有白墨」，之後分層匯出就會少一份。
-  // error 不擋：算失敗不是「還沒算完」，卡住會讓使用者無法送出，且已經算完（即使失敗）。
-  const underprintPending = geometry.status !== 'ready' && geometry.status !== 'error';
+  // 白墨幾何還沒算完時停用「送到 Imposition」：這個按鈕會把 editor 當下的
+  // getPathData() 定型存進拼版圖層，太早按會拿到還沒更新的空陣列，永久定型成
+  // 「沒有白墨」，之後分層匯出就會少一份。
+  //
+  // 這裡刻意不像 CutlinePanel 那樣多 AND 一個「underprintEnabled」：這個面板剛掛載、
+  // `underprintVisitedFor` 的 effect 還沒來得及把 underprintEnabled 從 false 轉成
+  // true 的那一個 render，狀態正好就是 underprintEnabled=false 且 geometry.status
+  // 還是上一張圖／上一次殘留的 'idle'——如果在這裡也 AND 上 underprintEnabled，
+  // 那一個 render 反而會把按鈕解禁，恰好重新打開這次要修的競態。CutlinePanel 沒有
+  // 這個「剛掛載」的窗口（它不受 underprintVisitedFor 影響），才需要另外用
+  // underprintEnabled 排除「使用者根本沒去過 Underprint 分頁」的正常情況。
+  const underprintPending = isGeometryPending(geometry.status);
   return (
     <>
       <SettingsSection params={params} onParamsChange={onParamsChange} />
