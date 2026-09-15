@@ -4,6 +4,7 @@ import {
   autoLayout,
   deleteInstance,
   enabledSizes,
+  kindsWithContent,
   layerBoxMm,
   LAYOUT_STALE_MESSAGE,
   moveInstance,
@@ -254,6 +255,38 @@ describe('sheetsWithContent', () => {
     // layerIds.has(...) 這個收緊條件本身有沒有真的在檢查）
     const layerDeleted: ImpositionState = { ...s, layers: [] };
     expect(sheetsWithContent(layerDeleted)).toEqual([]);
+  });
+});
+
+describe('kindsWithContent', () => {
+  it('沒有任何白墨時不含 underprint', () => {
+    const s = withLayer(layer({ underprint: null }));
+    expect(kindsWithContent(s)).toEqual(['artwork', 'cut']);
+  });
+
+  it('刀模 paths 為空陣列時不含 cut', () => {
+    const s = withLayer(layer({ cut: { kind: 'paths', paths: [] }, underprint: [{ d: 'M0 0Z' }] }));
+    expect(kindsWithContent(s)).toEqual(['artwork', 'underprint']);
+  });
+
+  it('白墨與刀模都有內容時三層都在，且順序固定為 artwork/underprint/cut', () => {
+    const s = withLayer(layer({ underprint: [{ d: 'M0 0Z' }] }));
+    expect(kindsWithContent(s)).toEqual(['artwork', 'underprint', 'cut']);
+  });
+
+  it('刀模是上傳 SVG（kind: "svg"）時也算有內容', () => {
+    const s = withLayer(layer({ cut: { kind: 'svg', svg: { viewBox: '0 0 10 10', inner: '' } } }));
+    expect(kindsWithContent(s)).toEqual(['artwork', 'cut']);
+  });
+
+  it('圖層未排入任何版面時不計入，三層都不算有內容', () => {
+    const s = withLayer(layer({ underprint: [{ d: 'M0 0Z' }] }));
+    const notPlaced: ImpositionState = { ...s, instances: s.instances.map(i => ({ ...i, sheetId: null })) };
+    expect(kindsWithContent(notPlaced)).toEqual([]);
+  });
+
+  it('沒有任何圖層時回傳空陣列', () => {
+    expect(kindsWithContent(DEFAULT_IMPOSITION_STATE)).toEqual([]);
   });
 });
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { blobToDataUrl, buildImpositionSvg, buildSheetSvgs, instanceTransform, placedItems } from './exportSvg';
+import { blobToDataUrl, buildImpositionSvg, buildLayeredExportFiles, buildSheetSvgs, instanceTransform, placedItems } from './exportSvg';
 import { DEFAULT_IMPOSITION_STATE, type ImpositionInstance, type ImpositionLayer, type ImpositionState } from './types';
 
 const layer = (overrides: Partial<ImpositionLayer> = {}): ImpositionLayer => ({
@@ -163,5 +163,75 @@ describe('buildSheetSvgs', () => {
     });
     expect(files).toHaveLength(1);
     expect(files[0].filename).toBe('x-1.svg');
+  });
+});
+
+describe('buildLayeredExportFiles', () => {
+  const twoSheetState = (): ImpositionState => ({
+    ...DEFAULT_IMPOSITION_STATE,
+    layers: [layer()],
+    sheets: [
+      { id: 's1', sizeName: 'A4', widthMm: 297, heightMm: 210 },
+      { id: 's2', sizeName: 'A3', widthMm: 420, heightMm: 297 },
+    ],
+    activeSheetId: 's1',
+    instances: [
+      inst({ id: 'i1', sheetId: 's1' }),
+      inst({ id: 'i2', sheetId: 's2' }),
+    ],
+  });
+
+  it('三層都有內容時，每層每張版面各出一檔，檔名依 kind 與版面序號組合', () => {
+    const files = buildLayeredExportFiles({
+      state: twoSheetState(),
+      colors,
+      imageDataUrls: new Map([['L1', 'data:image/png;base64,AAA']]),
+      baseName: 'imposition',
+    });
+    expect(files.map(f => f.filename)).toEqual([
+      'imposition-artwork-1.svg',
+      'imposition-artwork-2.svg',
+      'imposition-underprint-1.svg',
+      'imposition-underprint-2.svg',
+      'imposition-cut-1.svg',
+      'imposition-cut-2.svg',
+    ]);
+  });
+
+  it('沒有白墨時跳過整個 underprint 層', () => {
+    const state = twoSheetState();
+    const noUnderprint = { ...state, layers: [layer({ underprint: null })] };
+    const files = buildLayeredExportFiles({ state: noUnderprint, colors, imageDataUrls: new Map(), baseName: 'imposition' });
+    expect(files.map(f => f.filename)).toEqual([
+      'imposition-artwork-1.svg',
+      'imposition-artwork-2.svg',
+      'imposition-cut-1.svg',
+      'imposition-cut-2.svg',
+    ]);
+  });
+
+  it('刀模 paths 為空時跳過整個 cut 層', () => {
+    const state = twoSheetState();
+    const noCut = { ...state, layers: [layer({ cut: { kind: 'paths', paths: [] } })] };
+    const files = buildLayeredExportFiles({ state: noCut, colors, imageDataUrls: new Map(), baseName: 'imposition' });
+    expect(files.some(f => f.filename.includes('cut'))).toBe(false);
+  });
+
+  it('沒有任何圖層時回傳空陣列', () => {
+    const files = buildLayeredExportFiles({ state: DEFAULT_IMPOSITION_STATE, colors, imageDataUrls: new Map(), baseName: 'imposition' });
+    expect(files).toEqual([]);
+  });
+
+  it('每個檔只含自己該層的內容', () => {
+    const files = buildLayeredExportFiles({
+      state: twoSheetState(),
+      colors,
+      imageDataUrls: new Map([['L1', 'data:image/png;base64,AAA']]),
+      baseName: 'imposition',
+    });
+    const artworkFile = files.find(f => f.filename === 'imposition-artwork-1.svg');
+    expect(artworkFile?.svg).toContain('id="artwork"');
+    expect(artworkFile?.svg).not.toContain('id="underprint"');
+    expect(artworkFile?.svg).not.toContain('id="cut"');
   });
 });

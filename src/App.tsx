@@ -23,13 +23,13 @@ import { SettingsPage } from './components/panels/SettingsPage';
 import { useEditorSlot, type EditorSlot } from './hooks/useEditorSlot';
 import { useBackgroundRemoval } from './hooks/useBackgroundRemoval';
 import { useBlockWindowFileDrop } from './hooks/useFileDrop';
-import { useGeometry } from './hooks/useGeometry';
+import { isGeometryPending, useGeometry } from './hooks/useGeometry';
 import { useGeometryClient } from './hooks/useGeometryClient';
 import { useImposition } from './hooks/useImposition';
 import { useSourceImage } from './hooks/useSourceImage';
 import { useWorkerImage } from './hooks/useWorkerImage';
-import { downloadImpositionSvg } from './imposition/exportFile';
-import type { ImpositionLayerKind } from './imposition/exportSvg';
+import { downloadImpositionLayers, downloadImpositionSvg } from './imposition/exportFile';
+import type { ImpositionLayerKind } from './imposition/types';
 import { useSettings } from './settings/SettingsContext';
 import { DEFAULT_CUT_STYLE, DEFAULT_UNDERPRINT_STYLE, type ActiveTab, type DisplayStyle } from './types';
 import { downloadText } from './utils/download';
@@ -45,6 +45,17 @@ const SVG_MIME = 'image/svg+xml;charset=utf-8';
 
 const confirmExport = (warnings: readonly string[]): boolean =>
   warnings.length === 0 || window.confirm(`${warnings.join('\n')}\n\n確定要匯出嗎？`);
+
+/** 版面上目前沒有任何可匯出的內容（例如按下當下項目被清空）；三個匯出入口共用同一句話 */
+const NOTHING_TO_EXPORT_NOTICE = '沒有可以匯出的內容，請先排版後再試一次。';
+
+/**
+ * 下載事件已經送出，不代表瀏覽器真的完成了下載——Chrome 對同來源連續多檔下載會跳出詢問，
+ * 使用者若選擇封鎖，後續檔案會被靜默丟棄，程式端沒有任何方法偵測到。文案只誠實描述
+ * 「送出了幾個下載請求」，不宣稱「已下載」或「已匯出完成」幾個檔案。
+ */
+const downloadSentNotice = (count: number): string =>
+  count > 1 ? `已送出 ${count} 個檔案的下載，瀏覽器可能會詢問是否允許多檔下載` : '已送出 1 個檔案的下載';
 
 const EDITOR_TIPS = (
   <>
@@ -92,6 +103,9 @@ const App: React.FC = () => {
   );
   const underGeometry = useGeometry(client, 'underprint', imageId, underParamsPx);
   const under = useEditorSlot();
+  // 共用同一個值餵給 CutlinePanel 與 UnderprintPanel 的「送到 Imposition」保護，
+  // 不要兩邊各自從 underGeometry.status 重新算一次（理由見 isGeometryPending 的註解）
+  const underprintGeometryPending = isGeometryPending(underGeometry.status);
 
   const imposition = useImposition(activeTab === 'imposition', settings.defaultDpi, settings.sheetSizes);
   const [notice, setNotice] = useState<string | null>(null);
@@ -190,9 +204,28 @@ const App: React.FC = () => {
     downloadImpositionSvg(imposition.state, kinds, exportColors, baseName)
       .then(count => {
         // count === 0：目前沒有任何可匯出的版面（與 PDF 側的 'nothing-to-export' 是
-        // 同一個邊緣情況），不能顯示「已匯出」——使用者會以為拿到了檔案，其實一個都沒有。
-        if (count === 0) return;
-        setNotice(count > 1 ? `已匯出 ${count} 個 SVG 檔（每張版面一檔）` : '已匯出 SVG');
+        // 同一個邊緣情況）——不能顯示「已匯出」，但也不能什麼都不說：按鈕是啟用的、
+        // 使用者按下去卻沒有任何回饋，會以為畫面卡住了。
+        setNotice(count === 0 ? NOTHING_TO_EXPORT_NOTICE : downloadSentNotice(count));
+      })
+      .catch((err: unknown) => {
+        console.error('匯出 Imposition SVG 失敗', err);
+        window.alert('匯出 SVG 失敗，請再試一次。');
+      })
+      .finally(() => {
+        svgExportingRef.current = false;
+        setIsSvgExporting(false);
+      });
+  };
+
+  /** 「分層 SVG」按鈕：每層每張有內容的版面各出一檔，與 exportImposition 共用同一組重入防護 */
+  const exportImpositionLayers = () => {
+    if (svgExportingRef.current) return;
+    svgExportingRef.current = true;
+    setIsSvgExporting(true);
+    downloadImpositionLayers(imposition.state, exportColors, 'imposition')
+      .then(count => {
+        setNotice(count === 0 ? NOTHING_TO_EXPORT_NOTICE : downloadSentNotice(count));
       })
       .catch((err: unknown) => {
         console.error('匯出 Imposition SVG 失敗', err);
@@ -263,6 +296,8 @@ const App: React.FC = () => {
               onExportTrimmed={() => exportCut('trimmed')}
               onExportPdf={exportPdf}
               onSendToImposition={sendToImposition}
+              underprintEnabled={underprintEnabled}
+              underprintPending={underprintGeometryPending}
             />
           </>
         ) : null}
@@ -301,15 +336,23 @@ const App: React.FC = () => {
               const z = impositionRef.current?.fitZoom();
               if (z) imposition.update(s => ({ ...s, zoom: z }));
             }}
-            onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers')}
+            onExportLayers={exportImpositionLayers}
             onExportCut={() => exportImposition(['cut'], 'imposition-cut')}
             onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint')}
             isSvgExporting={isSvgExporting}
             isPdfExporting={isPdfExporting}
             onExportPdf={() => {
               setIsPdfExporting(true);
+              // 分層匯出每層各自的 done/total 都從 1 重新算起（「白墨 2/5 頁」會連著出現
+              // 三輪），只顯示 done/total 會像是進度倒退；layerIndex/layerCount 記著
+              // 「這是第幾層／總共幾層」一起顯示，也順便留到 'exported' 分支算「送出了
+              // 幾個檔案」的誠實文案，不用另外重新問一次 kindsWithContent。
+              let layerCount = 0;
               impositionRef.current
-                ?.exportPDF((done, total) => setNotice(`正在產生 PDF：${done} / ${total} 頁`))
+                ?.exportPDF((label, done, total, layerIndex, totalLayers) => {
+                  layerCount = totalLayers;
+                  setNotice(`正在產生 PDF：第 ${layerIndex}/${totalLayers} 層（${label}）${done} / ${total} 頁`);
+                })
                 .then(result => {
                   // 「不清旗標」是例外，只有一個理由能豁免：'skipped-busy' 表示這次呼叫被
                   // 重入防護擋下，旗標屬於還在跑的那次呼叫，該由它自己的 'exported' 分支清除
@@ -318,7 +361,10 @@ const App: React.FC = () => {
                   // 'nothing-to-export' 代表這次呼叫本身沒有任何人在跑，若不清，
                   // 旗標永遠不會歸零、按鈕會永久停用。
                   if (result === 'skipped-busy') return;
-                  if (result === 'exported') setNotice('PDF 已匯出');
+                  if (result === 'exported') setNotice(downloadSentNotice(layerCount));
+                  // 'nothing-to-export'：按鈕是啟用的、使用者按下去卻沒有任何回饋會像是卡住，
+                  // 跟 SVG 側 count === 0 是同一個邊緣情況，用同一句話。
+                  if (result === 'nothing-to-export') setNotice(NOTHING_TO_EXPORT_NOTICE);
                   setIsPdfExporting(false);
                 })
                 .catch((err: unknown) => {
