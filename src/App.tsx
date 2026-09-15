@@ -35,7 +35,7 @@ import { DEFAULT_CUT_STYLE, DEFAULT_UNDERPRINT_STYLE, type ActiveTab, type Displ
 import { downloadText } from './utils/download';
 
 const TABS: readonly TabDef[] = [
-  { id: 'editor', label: 'Editor' },
+  { id: 'editor', label: 'Die-cut' },
   { id: 'underprint', label: 'Underprint' },
   { id: 'imposition', label: 'Imposition' },
   { id: 'settings', label: '設定' },
@@ -126,9 +126,9 @@ const App: React.FC = () => {
       }),
     [guard],
   );
-  const guardCut = (action: () => void) => guardSlots([['Editor', cut]], action);
+  const guardCut = (action: () => void) => guardSlots([['Die-cut', cut]], action);
   const guardUnder = (action: () => void) => guardSlots([['Underprint', under]], action);
-  const guardSource = (action: () => void) => guardSlots([['Editor', cut], ['Underprint', under]], action);
+  const guardSource = (action: () => void) => guardSlots([['Die-cut', cut], ['Underprint', under]], action);
 
   const bgRemoval = useBackgroundRemoval(settings, sourceApi.replaceCurrent);
   const removeBackground = () => {
