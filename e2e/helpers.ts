@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Download, type Locator, type Page } from '@playwright/test';
 
 /**
  * 設定 range input 的值並觸發 React 的 onChange。
@@ -20,6 +20,35 @@ export async function downloadText(page: Page, trigger: () => Promise<void>): Pr
   const path = await download.path();
   if (!path) throw new Error('download has no path');
   return readFileSync(path, 'utf8');
+}
+
+export interface DownloadedFile {
+  filename: string;
+  content: string;
+}
+
+/**
+ * 觸發下載並收集「多個」下載檔案（例如每張版面一檔的多檔匯出）。
+ * 產品行為是每個檔案之間刻意間隔 250ms 以避開瀏覽器擋連續下載，
+ * 所以逾時時間要留夠：count 個檔案至少需要 (count - 1) * 250ms。
+ */
+export async function downloadAll(page: Page, trigger: () => Promise<void>, count: number): Promise<DownloadedFile[]> {
+  const downloads: Download[] = [];
+  const onDownload = (download: Download) => downloads.push(download);
+  page.on('download', onDownload);
+  try {
+    await trigger();
+    await expect.poll(() => downloads.length, { timeout: 10_000 }).toBe(count);
+  } finally {
+    page.off('download', onDownload);
+  }
+  return Promise.all(
+    downloads.map(async download => {
+      const path = await download.path();
+      if (!path) throw new Error('download has no path');
+      return { filename: download.suggestedFilename(), content: readFileSync(path, 'utf8') };
+    }),
+  );
 }
 
 export async function waitForCutline(page: Page, islands = '1'): Promise<void> {

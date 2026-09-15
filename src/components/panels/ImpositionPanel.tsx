@@ -1,7 +1,6 @@
 import { Download, FileText, Upload } from 'lucide-react';
 import React from 'react';
 import { useFileDrop } from '../../hooks/useFileDrop';
-import { placedItems } from '../../imposition/exportSvg';
 import type { SheetSize } from '../../imposition/sheetSizes';
 import { MAX_SHEETS } from '../../imposition/sheets';
 import { layerBoxMm, NO_ENABLED_SIZE_MESSAGE, setAllowRotate, toggleSheetSize } from '../../imposition/state';
@@ -21,6 +20,10 @@ interface ImpositionPanelProps {
   onExportCut: () => void;
   onExportUnderprint: () => void;
   onExportPdf: () => void;
+  /** PDF 匯出進行中；只用來停用「PDF 預覽」按鈕，不影響其他三個 SVG 匯出按鈕 */
+  isPdfExporting: boolean;
+  /** 三個 SVG 匯出按鈕共用同一個「匯出中」旗標；不影響 PDF 按鈕 */
+  isSvgExporting: boolean;
 }
 
 const SHOW_LABELS: readonly [keyof ImpositionShow, string][] = [
@@ -121,9 +124,9 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   // 排圖按鈕的停用條件之一：清單裡的尺寸全部被停用（清單本身是空的時候，這裡的 every 會是 vacuously true，
   // 交由下面的 disabled 判斷一起處理；面板提示則只在「清單非空、但全部被停用」時顯示，見下方用法）
   const allSizesDisabled = props.sheetSizes.every(s => state.disabledSizeNames.includes(s.name));
-  // 按鈕要反映「目前這張版面有沒有東西可匯出」，所以只算當前版面，
-  // 與 exportFile.ts 匯出時呼叫 placedItems(state, sheet.id) 用同一個判準
-  const placedCount = placedItems(state, state.activeSheetId).length;
+  // 匯出涵蓋所有版面（buildSheetSvgs 逐版面各出一檔），按鈕的啟用判準要跟涵蓋範圍一致：
+  // 只要有任一項目已經排進某張版面（sheetId 不是 null），就有東西可以匯出
+  const hasExportableItems = state.instances.some(i => i.sheetId !== null);
   // sheetId 為 null 有兩種成因：項目比所有尺寸都大，或版面數已達上限，這裡不猜測是哪一種
   const notPlacedWarnings = notPlacedCount > 0
     ? [
@@ -183,18 +186,17 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
           <div className="p-2 rounded bg-neutral-900 border border-neutral-700 text-[10px] text-neutral-300">{state.lastLayoutMessage}</div>
         ) : null}
       </Section>
-      <Section title="匯出（目前版面）">
-        <div className="text-[10px] text-neutral-500">目前一次只匯出當前版面，多檔匯出於下一階段提供。</div>
-        <ActionButton variant="primary" onClick={props.onExportLayers} disabled={placedCount === 0} testId="export-imposition-layers">
-          <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模）
+      <Section title="匯出">
+        <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-layers">
+          <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模，每張版面一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportCut} disabled={placedCount === 0} testId="export-imposition-cut">
-          <Download className="w-3 h-3" /> 只有刀模 SVG
+        <ActionButton onClick={props.onExportCut} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-cut">
+          <Download className="w-3 h-3" /> 只有刀模 SVG（每張版面一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportUnderprint} disabled={placedCount === 0 || !hasUnderprint} testId="export-imposition-underprint">
-          <Download className="w-3 h-3" /> 只有白墨 SVG
+        <ActionButton onClick={props.onExportUnderprint} disabled={!hasExportableItems || !hasUnderprint || props.isSvgExporting} testId="export-imposition-underprint">
+          <Download className="w-3 h-3" /> 只有白墨 SVG（每張版面一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportPdf} disabled={placedCount === 0} testId="export-imposition-pdf">
+        <ActionButton onClick={props.onExportPdf} disabled={!hasExportableItems || props.isPdfExporting} testId="export-imposition-pdf">
           <FileText className="w-3 h-3" /> PDF 預覽（點陣）
         </ActionButton>
       </Section>

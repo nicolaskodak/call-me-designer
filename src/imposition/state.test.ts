@@ -12,6 +12,7 @@ import {
   selectSheet,
   setAllowRotate,
   setLayerTotalCount,
+  sheetsWithContent,
   sheetUsage,
   toggleSheetSize,
   upsertSourceLayer,
@@ -237,6 +238,22 @@ describe('sheetUsage', () => {
 
   it('未知的版面 id 回傳 0', () => {
     expect(sheetUsage(withLayer(), 'nope')).toBe(0);
+  });
+});
+
+describe('sheetsWithContent', () => {
+  it('版面上有 instance 引用著存在的圖層時，算有內容', () => {
+    const s = withLayer();
+    expect(sheetsWithContent(s).map(sheet => sheet.id)).toEqual([s.activeSheetId]);
+  });
+
+  it('instance 引用的圖層已經不存在時，該版面不算有內容', () => {
+    const s = withLayer();
+    // 模擬 reducer 的不變式被打破：instance 還掛在版面上，但引用的圖層已經被移除
+    // （目前的 reducer 保證不會發生，這裡直接構造 state 繞過該保證，逼出
+    // layerIds.has(...) 這個收緊條件本身有沒有真的在檢查）
+    const layerDeleted: ImpositionState = { ...s, layers: [] };
+    expect(sheetsWithContent(layerDeleted)).toEqual([]);
   });
 });
 

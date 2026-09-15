@@ -97,6 +97,10 @@ const App: React.FC = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const clearNotice = useCallback(() => setNotice(null), []);
   const impositionRef = useRef<ImpositionCanvasHandle>(null);
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
+  const [isSvgExporting, setIsSvgExporting] = useState(false);
+  /** 三個 SVG 匯出按鈕共用同一個重入防護：同時只該有一組 SVG 匯出在跑 */
+  const svgExportingRef = useRef(false);
   const { guard, dialog } = useRegenerateGuard();
 
   // 確認後立刻清掉 dirty，避免拖拉桿時重複詢問
@@ -175,11 +179,29 @@ const App: React.FC = () => {
     setNotice(underPaths.length > 0 ? '已送到 Imposition（含白墨）' : '已送到 Imposition（不含白墨）');
   };
 
-  const exportImposition = (kinds: readonly ImpositionLayerKind[], filename: string) => {
-    downloadImpositionSvg(imposition.state, kinds, exportColors, filename).catch((err: unknown) => {
-      console.error('匯出 Imposition SVG 失敗', err);
-      window.alert('匯出 SVG 失敗，請再試一次。');
-    });
+  const exportImposition = (kinds: readonly ImpositionLayerKind[], baseName: string) => {
+    // 重入防護：連點兩次任一顆 SVG 匯出按鈕，兩個迴圈交錯送出下載會讓檔名重複、
+    // 數量對不上「已匯出 N 個」的宣稱——三個按鈕共用同一個旗標，因為同時只該有
+    // 一組 SVG 匯出在跑。用 ref 同步檢查，button 的 disabled 只是第二層防線
+    // （React 重新渲染前的空窗期擋不住連點）。
+    if (svgExportingRef.current) return;
+    svgExportingRef.current = true;
+    setIsSvgExporting(true);
+    downloadImpositionSvg(imposition.state, kinds, exportColors, baseName)
+      .then(count => {
+        // count === 0：目前沒有任何可匯出的版面（與 PDF 側的 'nothing-to-export' 是
+        // 同一個邊緣情況），不能顯示「已匯出」——使用者會以為拿到了檔案，其實一個都沒有。
+        if (count === 0) return;
+        setNotice(count > 1 ? `已匯出 ${count} 個 SVG 檔（每張版面一檔）` : '已匯出 SVG');
+      })
+      .catch((err: unknown) => {
+        console.error('匯出 Imposition SVG 失敗', err);
+        window.alert('匯出 SVG 失敗，請再試一次。');
+      })
+      .finally(() => {
+        svgExportingRef.current = false;
+        setIsSvgExporting(false);
+      });
   };
 
   const uploadImposition = (files: File[]) => {
@@ -279,14 +301,32 @@ const App: React.FC = () => {
               const z = impositionRef.current?.fitZoom();
               if (z) imposition.update(s => ({ ...s, zoom: z }));
             }}
-            onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers.svg')}
-            onExportCut={() => exportImposition(['cut'], 'imposition-cut.svg')}
-            onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint.svg')}
+            onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers')}
+            onExportCut={() => exportImposition(['cut'], 'imposition-cut')}
+            onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint')}
+            isSvgExporting={isSvgExporting}
+            isPdfExporting={isPdfExporting}
             onExportPdf={() => {
-              impositionRef.current?.exportPDF().catch((err: unknown) => {
-                console.error('匯出 PDF 失敗', err);
-                window.alert('匯出 PDF 失敗，請再試一次。');
-              });
+              setIsPdfExporting(true);
+              impositionRef.current
+                ?.exportPDF((done, total) => setNotice(`正在產生 PDF：${done} / ${total} 頁`))
+                .then(result => {
+                  // 「不清旗標」是例外，只有一個理由能豁免：'skipped-busy' 表示這次呼叫被
+                  // 重入防護擋下，旗標屬於還在跑的那次呼叫，該由它自己的 'exported' 分支清除
+                  // ——這裡若跟著清，會在真正的匯出還沒完成時就讓按鈕提早解除停用。
+                  // 除此之外的每一條結束路徑都必須清旗標：'exported' 是正常完成；
+                  // 'nothing-to-export' 代表這次呼叫本身沒有任何人在跑，若不清，
+                  // 旗標永遠不會歸零、按鈕會永久停用。
+                  if (result === 'skipped-busy') return;
+                  if (result === 'exported') setNotice('PDF 已匯出');
+                  setIsPdfExporting(false);
+                })
+                .catch((err: unknown) => {
+                  console.error('匯出 PDF 失敗', err);
+                  window.alert('匯出 PDF 失敗，請再試一次。');
+                  // 失敗一定要清旗標，否則按鈕會永遠停用
+                  setIsPdfExporting(false);
+                });
             }}
           />
         ) : null}

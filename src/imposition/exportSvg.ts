@@ -1,6 +1,7 @@
 import { CUT_STROKE_MM, escapeAttr, formatNumber, pathElement } from '../export/svg';
 import { mmToPx, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
+import { sheetsWithContent } from './state';
 import type { ImpositionInstance, ImpositionLayer, ImpositionState } from './types';
 
 export type ImpositionLayerKind = 'artwork' | 'underprint' | 'cut';
@@ -84,4 +85,30 @@ export function buildImpositionSvg(o: {
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="${INKSCAPE_NS}" width="${f(o.widthMm)}mm" height="${f(o.heightMm)}mm" viewBox="0 0 ${f(o.widthMm)} ${f(o.heightMm)}">\n` +
     `${body}\n</svg>\n`
   );
+}
+
+export interface SheetSvgFile {
+  filename: string;
+  svg: string;
+}
+
+/** 每張有項目的版面產生一個 SVG；編號依版面順序，跳過空版面不會造成號碼跳號 */
+export function buildSheetSvgs(o: {
+  state: ImpositionState;
+  kinds: readonly ImpositionLayerKind[];
+  colors: { cut: string; underprint: string };
+  imageDataUrls: ReadonlyMap<string, string>;
+  baseName: string;
+}): SheetSvgFile[] {
+  return sheetsWithContent(o.state).map((sheet, index) => {
+    const svg = buildImpositionSvg({
+      widthMm: sheet.widthMm,
+      heightMm: sheet.heightMm,
+      items: placedItems(o.state, sheet.id),
+      kinds: o.kinds,
+      colors: o.colors,
+      imageDataUrls: o.imageDataUrls,
+    });
+    return { svg, filename: `${o.baseName}-${index + 1}.svg` };
+  });
 }
