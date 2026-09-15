@@ -1,6 +1,8 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useFileDrop } from '../hooks/useFileDrop';
+import { DEFAULT_UNDERPRINT_OPACITY, pdfLayerColors } from '../imposition/pdfLayerColors';
+import type { StageColors } from '../imposition/pdfLayerColors';
 import { kindsWithContent, layerBoxMm, moveInstance, selectInstance, selectSheet, sheetsWithContent, sheetUsage } from '../imposition/state';
 import type {
   ImpositionInstance,
@@ -31,10 +33,8 @@ export interface ImpositionCanvasHandle {
   fitZoom(): number | null;
 }
 
-interface Colors {
-  cut: string;
-  underprint: string;
-}
+/** cut／underprint 兩色，加上白墨用的不透明度覆寫（見 pdfLayerColors） */
+type Colors = StageColors;
 
 interface ImpositionCanvasProps {
   state: ImpositionState;
@@ -67,8 +67,6 @@ const MAX_CANVAS_PX = 4000;
 const VIEWPORT_PADDING_PX = 24;
 /** 同一個 tick 連發多個檔案下載會被瀏覽器擋掉，每層的 PDF 之間隔一下 */
 const DOWNLOAD_GAP_MS = 250;
-/** 白墨分色版的印刷慣例：有墨處為黑。只覆寫 PDF 暫存區截圖用的顏色，畫布本身的顯示色不受影響 */
-const UNDERPRINT_PDF_COLOR = '#000000';
 
 const KIND_LABELS: Record<ImpositionLayerKind, string> = { artwork: '原圖', underprint: '白墨', cut: '刀模' };
 
@@ -93,7 +91,12 @@ const contentTransform = (layer: ImpositionLayer, rotationDeg: 0 | 90, scale: nu
   return `scale(${scale}) ${inner}`;
 };
 
-function ItemContent({ layer, show, colors }: { layer: ImpositionLayer; show: ImpositionShow; colors: Colors }) {
+/**
+ * 匯出到 `src/components/ImpositionCanvas.test.tsx`：白墨路徑的 fillOpacity 需要在
+ * 「畫面即時畫布維持 0.8」與「PDF 白墨那一輪必須是實墨（1）」之間切換，這個切換靠
+ * colors.underprintOpacity 是否被覆寫（見 pdfLayerColors）驅動，值得單獨測試，不只靠 e2e。
+ */
+export function ItemContent({ layer, show, colors }: { layer: ImpositionLayer; show: ImpositionShow; colors: Colors }) {
   const { widthPx: w, heightPx: h } = layer;
   const svgProps = { className: 'absolute inset-0 overflow-visible', width: w, height: h, viewBox: `0 0 ${w} ${h}` };
   return (
@@ -104,7 +107,13 @@ function ItemContent({ layer, show, colors }: { layer: ImpositionLayer; show: Im
       {show.underprint && layer.underprint ? (
         <svg {...svgProps}>
           {layer.underprint.map((p, i) => (
-            <path key={i} d={p.d} fill={colors.underprint} fillOpacity={0.8} fillRule="evenodd" />
+            <path
+              key={i}
+              d={p.d}
+              fill={colors.underprint}
+              fillOpacity={colors.underprintOpacity ?? DEFAULT_UNDERPRINT_OPACITY}
+              fillRule="evenodd"
+            />
           ))}
         </svg>
       ) : null}
@@ -312,9 +321,11 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
               sheets: sheetInstances,
               layerById,
               show: { artwork: kind === 'artwork', underprint: kind === 'underprint', cut: kind === 'cut' },
-              // 白墨要給印刷廠，分色版的慣例是「有墨處為黑」：只覆寫這一層截圖用的顏色，
-              // 其餘層（原圖／刀模）照設定色走，頁面底色也維持白色（見 buildSheetsPdf）
-              colors: kind === 'underprint' ? { ...colors, underprint: UNDERPRINT_PDF_COLOR } : colors,
+              // 白墨要給印刷廠，分色版的慣例是「有墨處為黑」，而且必須是實墨（不透明度 1），
+              // 不能沿用畫面上為了讓使用者看穿疊圖而調的 0.8——pdfLayerColors 只覆寫這一層
+              // 截圖用的顏色／不透明度，其餘層（原圖／刀模）照設定色走，頁面底色也維持白色
+              // （見 buildSheetsPdf）；畫面即時畫布不呼叫這個函式，0.8 的顯示行為不受影響
+              colors: pdfLayerColors(kind, colors),
             };
             setStage(snapshot);
             await nextPaint();
