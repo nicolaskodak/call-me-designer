@@ -43,6 +43,11 @@ export function UnderprintPanel(props: UnderprintPanelProps) {
   const { params, onParamsChange, geometry, dpi, hasSource } = props;
   const smoothHint = dpi ? `可能偏移約 ${formatMm(pxToMm(params.smoothness, dpi), 2)}` : undefined;
   const stats = geometry.result?.stats;
+  // 白墨幾何還沒算完（idle：剛切到這頁、debounce 還沒觸發／processing：正在算）時停用
+  // 「送到 Imposition」：這個按鈕會把 editor 當下的 getPathData() 定型存進拼版圖層，
+  // 太早按會拿到還沒更新的空陣列，永久定型成「沒有白墨」，之後分層匯出就會少一份。
+  // error 不擋：算失敗不是「還沒算完」，卡住會讓使用者無法送出，且已經算完（即使失敗）。
+  const underprintPending = geometry.status !== 'ready' && geometry.status !== 'error';
   return (
     <>
       <SettingsSection params={params} onParamsChange={onParamsChange} />
@@ -70,9 +75,19 @@ export function UnderprintPanel(props: UnderprintPanelProps) {
           <Download className="w-3 h-3" /> 匯出白墨 SVG（對齊原圖）
         </ActionButton>
         {props.onSendToImposition ? (
-          <ActionButton variant="primary" onClick={props.onSendToImposition} disabled={!hasSource} testId="send-to-imposition-under">
-            <Send className="w-3 h-3" /> 送到 Imposition
-          </ActionButton>
+          <>
+            <ActionButton
+              variant="primary"
+              onClick={props.onSendToImposition}
+              disabled={!hasSource || underprintPending}
+              testId="send-to-imposition-under"
+            >
+              <Send className="w-3 h-3" /> 送到 Imposition
+            </ActionButton>
+            {hasSource && underprintPending ? (
+              <p className="text-[10px] text-neutral-500" data-testid="underprint-pending-hint">白墨計算中，請稍候…</p>
+            ) : null}
+          </>
         ) : null}
       </Section>
     </>
