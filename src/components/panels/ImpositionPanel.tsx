@@ -188,7 +188,7 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
       </Section>
       <Section title="匯出">
         <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-layers">
-          <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模，每層每張版面各一檔）
+          <Download className="w-3 h-3" /> 分層 SVG（依內容分層，只輸出有內容的層，每層每張版面各一檔）
         </ActionButton>
         <ActionButton onClick={props.onExportCut} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-cut">
           <Download className="w-3 h-3" /> 只有刀模 SVG（每張版面一檔）
@@ -197,8 +197,13 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
           <Download className="w-3 h-3" /> 只有白墨 SVG（每張版面一檔）
         </ActionButton>
         <ActionButton onClick={props.onExportPdf} disabled={!hasExportableItems || props.isPdfExporting} testId="export-imposition-pdf">
-          <FileText className="w-3 h-3" /> PDF 預覽（點陣）
+          <FileText className="w-3 h-3" /> PDF 匯出（點陣，依內容分層，最多 3 個檔案）
         </ActionButton>
+        {hasUnderprint ? (
+          <p className="text-[10px] text-neutral-500" data-testid="imposition-underprint-hint">
+            白墨檔案是純白色，用白底軟體開啟看起來像空白是正常的；請改用支援深色背景的工具檢視內容。
+          </p>
+        ) : null}
       </Section>
       <Section title="圖層">
         <LayerList state={state} onSetLayerTotalCount={props.onSetLayerTotalCount} />
