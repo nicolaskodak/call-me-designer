@@ -188,7 +188,7 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
       </Section>
       <Section title="匯出">
         <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-layers">
-          <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模，每張版面一檔）
+          <Download className="w-3 h-3" /> 分層 SVG（原圖＋白墨＋刀模，每層每張版面各一檔）
         </ActionButton>
         <ActionButton onClick={props.onExportCut} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-cut">
           <Download className="w-3 h-3" /> 只有刀模 SVG（每張版面一檔）

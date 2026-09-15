@@ -28,8 +28,8 @@ import { useGeometryClient } from './hooks/useGeometryClient';
 import { useImposition } from './hooks/useImposition';
 import { useSourceImage } from './hooks/useSourceImage';
 import { useWorkerImage } from './hooks/useWorkerImage';
-import { downloadImpositionSvg } from './imposition/exportFile';
-import type { ImpositionLayerKind } from './imposition/exportSvg';
+import { downloadImpositionLayers, downloadImpositionSvg } from './imposition/exportFile';
+import type { ImpositionLayerKind } from './imposition/types';
 import { useSettings } from './settings/SettingsContext';
 import { DEFAULT_CUT_STYLE, DEFAULT_UNDERPRINT_STYLE, type ActiveTab, type DisplayStyle } from './types';
 import { downloadText } from './utils/download';
@@ -204,6 +204,26 @@ const App: React.FC = () => {
       });
   };
 
+  /** 「分層 SVG」按鈕：每層每張有內容的版面各出一檔，與 exportImposition 共用同一組重入防護 */
+  const exportImpositionLayers = () => {
+    if (svgExportingRef.current) return;
+    svgExportingRef.current = true;
+    setIsSvgExporting(true);
+    downloadImpositionLayers(imposition.state, exportColors, 'imposition')
+      .then(count => {
+        if (count === 0) return;
+        setNotice(count > 1 ? `已匯出 ${count} 個 SVG 檔（分層，每張版面每層一檔）` : '已匯出 SVG');
+      })
+      .catch((err: unknown) => {
+        console.error('匯出 Imposition SVG 失敗', err);
+        window.alert('匯出 SVG 失敗，請再試一次。');
+      })
+      .finally(() => {
+        svgExportingRef.current = false;
+        setIsSvgExporting(false);
+      });
+  };
+
   const uploadImposition = (files: File[]) => {
     imposition.uploadPairs(files).then(skipped => {
       if (skipped.length > 0) window.alert(`以下檔名沒有配對成「圖片＋SVG」或無法載入，已略過：\n\n${skipped.join('\n')}`);
@@ -301,7 +321,7 @@ const App: React.FC = () => {
               const z = impositionRef.current?.fitZoom();
               if (z) imposition.update(s => ({ ...s, zoom: z }));
             }}
-            onExportLayers={() => exportImposition(['artwork', 'underprint', 'cut'], 'imposition-layers')}
+            onExportLayers={exportImpositionLayers}
             onExportCut={() => exportImposition(['cut'], 'imposition-cut')}
             onExportUnderprint={() => exportImposition(['underprint'], 'imposition-underprint')}
             isSvgExporting={isSvgExporting}
@@ -309,7 +329,7 @@ const App: React.FC = () => {
             onExportPdf={() => {
               setIsPdfExporting(true);
               impositionRef.current
-                ?.exportPDF((done, total) => setNotice(`正在產生 PDF：${done} / ${total} 頁`))
+                ?.exportPDF((label, done, total) => setNotice(`正在產生 PDF：${label} ${done} / ${total} 頁`))
                 .then(result => {
                   // 「不清旗標」是例外，只有一個理由能豁免：'skipped-busy' 表示這次呼叫被
                   // 重入防護擋下，旗標屬於還在跑的那次呼叫，該由它自己的 'exported' 分支清除

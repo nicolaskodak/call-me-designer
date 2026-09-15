@@ -1,7 +1,7 @@
 import { pxToMm } from '../units';
 import { packIntoSheets } from './sheets';
 import type { SheetSize } from './sheetSizes';
-import type { ImpositionInstance, ImpositionLayer, ImpositionSheet, ImpositionState } from './types';
+import type { ImpositionInstance, ImpositionLayer, ImpositionLayerKind, ImpositionSheet, ImpositionState } from './types';
 
 export type IdFactory = () => string;
 
@@ -188,6 +188,28 @@ export function sheetsWithContent(state: ImpositionState): ImpositionSheet[] {
     state.instances.filter(i => i.sheetId !== null && layerIds.has(i.layerId)).map(i => i.sheetId as string),
   );
   return state.sheets.filter(s => sheetIdsWithContent.has(s.id));
+}
+
+/**
+ * 有實際內容的圖層種類，只計入已排進版面（instance.sheetId 不是 null 且引用著存在的圖層——
+ * 判準與 sheetsWithContent 一致）的圖層：
+ * - artwork：只要有任何已排入的圖層就算有（每個圖層都有 imageUrl）
+ * - underprint：任一已排入的圖層 underprint 非 null 且長度 > 0
+ * - cut：任一已排入的圖層 cut.kind === 'svg'，或 cut.kind === 'paths' 且 paths.length > 0
+ *
+ * PDF（ImpositionCanvas.exportPDF）與 SVG（exportSvg.buildLayeredExportFiles）的分層匯出都用
+ * 這個函式決定要輸出哪幾層——sheetsWithContent 已經因為「PDF 與 SVG 各寫一套版面內容判準、
+ * 靠別處的不變式才碰巧一致」這個教訓收斂成單一函式，這裡沿用同樣的做法，不要重蹈覆轍。
+ * 回傳順序固定為 ['artwork', 'underprint', 'cut'] 的子集。
+ */
+export function kindsWithContent(state: ImpositionState): ImpositionLayerKind[] {
+  const placedLayerIds = new Set(state.instances.filter(i => i.sheetId !== null).map(i => i.layerId));
+  const placed = state.layers.filter(l => placedLayerIds.has(l.id));
+  const kinds: ImpositionLayerKind[] = [];
+  if (placed.length > 0) kinds.push('artwork');
+  if (placed.some(l => l.underprint !== null && l.underprint.length > 0)) kinds.push('underprint');
+  if (placed.some(l => l.cut.kind === 'svg' || (l.cut.kind === 'paths' && l.cut.paths.length > 0))) kinds.push('cut');
+  return kinds;
 }
 
 export const toggleSheetSize = (state: ImpositionState, name: string): ImpositionState => ({

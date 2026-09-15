@@ -1,10 +1,8 @@
 import { CUT_STROKE_MM, escapeAttr, formatNumber, pathElement } from '../export/svg';
 import { mmToPx, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
-import { sheetsWithContent } from './state';
-import type { ImpositionInstance, ImpositionLayer, ImpositionState } from './types';
-
-export type ImpositionLayerKind = 'artwork' | 'underprint' | 'cut';
+import { kindsWithContent, sheetsWithContent } from './state';
+import type { ImpositionInstance, ImpositionLayer, ImpositionLayerKind, ImpositionState } from './types';
 
 export interface PlacedItem {
   layer: ImpositionLayer;
@@ -111,4 +109,31 @@ export function buildSheetSvgs(o: {
     });
     return { svg, filename: `${o.baseName}-${index + 1}.svg` };
   });
+}
+
+/**
+ * 分層匯出：依 kindsWithContent 決定要輸出哪幾層，每層每張有內容的版面各出一個檔，
+ * 檔名為 `${baseName}-${kind}-${版面序號}.svg`（例如 imposition-artwork-1.svg）。
+ * 「哪幾層算有內容」與「哪張版面算有內容」都不在這裡重新判斷一次，分別交給
+ * kindsWithContent 與（透過 buildSheetSvgs）sheetsWithContent，維持單一真相來源。
+ */
+export function buildLayeredExportFiles(o: {
+  state: ImpositionState;
+  colors: { cut: string; underprint: string };
+  imageDataUrls: ReadonlyMap<string, string>;
+  baseName: string;
+}): SheetSvgFile[] {
+  const order: ImpositionLayerKind[] = ['artwork', 'underprint', 'cut'];
+  const kinds = kindsWithContent(o.state);
+  return order
+    .filter(kind => kinds.includes(kind))
+    .flatMap(kind =>
+      buildSheetSvgs({
+        state: o.state,
+        kinds: [kind],
+        colors: o.colors,
+        imageDataUrls: o.imageDataUrls,
+        baseName: `${o.baseName}-${kind}`,
+      }),
+    );
 }

@@ -22,12 +22,21 @@ test('cut line, underprint and layered imposition export', async ({ page }) => {
   await page.getByTestId('imposition-auto-layout').click();
   await expect(page.getByTestId('imposition-sheet-count')).toHaveText('1');
 
-  const layered = await downloadText(page, () => page.getByTestId('export-imposition-layers').click());
-  for (const id of ['artwork', 'underprint', 'cut']) {
-    expect(layered).toContain(`id="${id}"`);
+  // 分層 SVG：三層都有內容，一張版面各出一個檔（原圖／白墨／刀模各一）
+  const layered = await downloadAll(page, () => page.getByTestId('export-imposition-layers').click(), 3);
+  const byFilename = Object.fromEntries(layered.map(f => [f.filename, f.content]));
+  expect(Object.keys(byFilename).sort()).toEqual([
+    'imposition-artwork-1.svg',
+    'imposition-cut-1.svg',
+    'imposition-underprint-1.svg',
+  ]);
+  expect(byFilename['imposition-artwork-1.svg']).toContain('id="artwork"');
+  expect(byFilename['imposition-artwork-1.svg']).toContain('data:image/png;base64,');
+  expect(byFilename['imposition-underprint-1.svg']).toContain('id="underprint"');
+  expect(byFilename['imposition-cut-1.svg']).toContain('id="cut"');
+  for (const content of Object.values(byFilename)) {
+    expect(content).toContain('width="297mm" height="210mm"');
   }
-  expect(layered).toContain('data:image/png;base64,');
-  expect(layered).toContain('width="297mm" height="210mm"');
 });
 
 test('拖曳拼版項目會依滑鼠位移量精準移動', async ({ page }) => {
@@ -137,6 +146,9 @@ test('版面塞不下時自動開新版面，項目不重複也不遺漏', async
   await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
   await waitForCutline(page, '1');
   await page.getByTestId('tab-underprint').click();
+  // 等白墨算完再送出，否則 getPathData() 可能撈到還沒算完的空陣列，
+  // 讓這個圖層被判定成「沒有白墨」，跟後面斷言的三層（含白墨）檔案數對不上
+  await expect(page.getByTestId('under-island-count')).toHaveText('2');
   await page.getByTestId('send-to-imposition-under').click();
   await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
 
@@ -171,21 +183,29 @@ test('版面塞不下時自動開新版面，項目不重複也不遺漏', async
   }
   expect(total).toBe(COPIES);
 
-  // 多版面匯出：每張版面各出一個 SVG 檔，檔名依序編號、彼此不重複
-  const files = await downloadAll(page, () => page.getByTestId('export-imposition-layers').click(), sheetCount);
-  expect(files).toHaveLength(sheetCount);
+  // 多版面分層匯出：三層（原圖／白墨／刀模）都有內容，每層每張版面各出一檔，
+  // 檔名依 kind 與版面序號組合、彼此不重複
+  const KINDS = ['artwork', 'underprint', 'cut'] as const;
+  const totalFiles = sheetCount * KINDS.length;
+  const files = await downloadAll(page, () => page.getByTestId('export-imposition-layers').click(), totalFiles);
+  expect(files).toHaveLength(totalFiles);
   const filenames = files.map(f => f.filename);
-  expect(new Set(filenames).size).toBe(sheetCount);
+  expect(new Set(filenames).size).toBe(totalFiles);
   for (const name of filenames) {
-    expect(name).toMatch(/^imposition-layers-\d+\.svg$/);
+    expect(name).toMatch(/^imposition-(artwork|underprint|cut)-\d+\.svg$/);
+  }
+  for (const kind of KINDS) {
+    expect(filenames.filter(name => name.startsWith(`imposition-${kind}-`))).toHaveLength(sheetCount);
   }
 });
 
-test('多版面匯出 PDF 會觸發一次下載，且畫面外暫存區在匯出結束後移除', async ({ page }) => {
+test('多版面匯出 PDF 會依層各出一個檔，且畫面外暫存區在匯出結束後移除', async ({ page }) => {
   await page.goto('./');
   await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
   await waitForCutline(page, '1');
   await page.getByTestId('tab-underprint').click();
+  // 等白墨算完再送出，否則這個圖層可能被判定成「沒有白墨」，跟後面斷言的三個 PDF 檔對不上
+  await expect(page.getByTestId('under-island-count')).toHaveText('2');
   await page.getByTestId('send-to-imposition-under').click();
   await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
 
@@ -206,22 +226,26 @@ test('多版面匯出 PDF 會觸發一次下載，且畫面外暫存區在匯出
   await page.getByTestId('imposition-auto-layout').click();
   await expect(page.getByTestId('imposition-sheet-count')).not.toHaveText('1');
 
-  const [download] = await Promise.all([
-    page.waitForEvent('download'),
-    page.getByTestId('export-imposition-pdf').click(),
+  // 這個情境三層都有內容（原圖／白墨／刀模），一次匯出依序產生三個檔案，一層一檔
+  const files = await downloadAll(page, () => page.getByTestId('export-imposition-pdf').click(), 3);
+  expect(files.map(f => f.filename).sort()).toEqual([
+    'imposition-artwork.pdf',
+    'imposition-cut.pdf',
+    'imposition-underprint.pdf',
   ]);
-  expect(download.suggestedFilename()).toBe('imposition-layout.pdf');
 
   // 匯出用的畫面外暫存區（每張版面掛一份 SheetBoard 去截圖）在 finally 清乾淨後
   // 應該完全從 DOM 移除，而不是留著、只是不可見——留著會讓下一次匯出疊加或量到舊尺寸
   await expect(page.getByTestId('pdf-export-stage')).toHaveCount(0);
 });
 
-test('連續快速點兩次「PDF 預覽」只會產生一次下載', async ({ page }) => {
+test('連續快速點兩次「PDF 預覽」只會產生一次匯出（三個分層檔案，不會翻倍）', async ({ page }) => {
   await page.goto('./');
   await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
   await waitForCutline(page, '1');
   await page.getByTestId('tab-underprint').click();
+  // 等白墨算完再送出，否則這個圖層可能被判定成「沒有白墨」，跟後面斷言的三個 PDF 檔對不上
+  await expect(page.getByTestId('under-island-count')).toHaveText('2');
   await page.getByTestId('send-to-imposition-under').click();
   await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
 
@@ -290,9 +314,9 @@ test('連續快速點兩次「PDF 預覽」只會產生一次下載', async ({ p
   expect(sawStagePresent).toBe(true);
   expect(buttonWasEnabledWhileStageExists).toBe(false);
 
-  // 等匯出真的跑完（暫存區消失）再收斂下載事件
+  // 等匯出真的跑完（暫存區消失）再收斂下載事件；三層各一檔，不會因為連點兩次而翻倍成六個
   await expect(page.getByTestId('pdf-export-stage')).toHaveCount(0, { timeout: 15_000 });
-  expect(downloads).toEqual(['imposition-layout.pdf']);
+  expect(downloads.sort()).toEqual(['imposition-artwork.pdf', 'imposition-cut.pdf', 'imposition-underprint.pdf']);
 });
 
 test('匯出 PDF 途中切換分頁，匯出仍會完成', async ({ page }) => {
@@ -300,6 +324,8 @@ test('匯出 PDF 途中切換分頁，匯出仍會完成', async ({ page }) => {
   await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
   await waitForCutline(page, '1');
   await page.getByTestId('tab-underprint').click();
+  // 等白墨算完再送出，否則這個圖層可能被判定成「沒有白墨」，跟後面斷言的三個 PDF 檔對不上
+  await expect(page.getByTestId('under-island-count')).toHaveText('2');
   await page.getByTestId('send-to-imposition-under').click();
   await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
 
@@ -324,14 +350,15 @@ test('匯出 PDF 途中切換分頁，匯出仍會完成', async ({ page }) => {
   // 匯出途中切走分頁會讓暫存區整棵 display:none、offsetWidth 變 0，
   // 觸發 captureSheet 的防護把整次匯出判定失敗，已截好的頁全部作廢。
   // 這裡刻意在按下匯出後立刻切分頁，逼出匯出還在跑的那個時間窗。
-  const [download] = await Promise.all([
-    page.waitForEvent('download', { timeout: 10_000 }),
-    (async () => {
-      await page.getByTestId('export-imposition-pdf').click();
-      await page.getByTestId('tab-editor').click();
-    })(),
+  const files = await downloadAll(page, async () => {
+    await page.getByTestId('export-imposition-pdf').click();
+    await page.getByTestId('tab-editor').click();
+  }, 3);
+  expect(files.map(f => f.filename).sort()).toEqual([
+    'imposition-artwork.pdf',
+    'imposition-cut.pdf',
+    'imposition-underprint.pdf',
   ]);
-  expect(download.suggestedFilename()).toBe('imposition-layout.pdf');
 
   // 切走分頁之後，拼版分頁的容器（含未脫離出去的東西）會是 display:none，
   // 但暫存區已經 portal 到 document.body，匯出結束後仍然要正常清掉

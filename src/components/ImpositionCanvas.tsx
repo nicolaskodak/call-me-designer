@@ -1,8 +1,15 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useFileDrop } from '../hooks/useFileDrop';
-import { layerBoxMm, moveInstance, selectInstance, selectSheet, sheetsWithContent, sheetUsage } from '../imposition/state';
-import type { ImpositionInstance, ImpositionLayer, ImpositionShow, ImpositionSheet, ImpositionState } from '../imposition/types';
+import { kindsWithContent, layerBoxMm, moveInstance, selectInstance, selectSheet, sheetsWithContent, sheetUsage } from '../imposition/state';
+import type {
+  ImpositionInstance,
+  ImpositionLayer,
+  ImpositionLayerKind,
+  ImpositionShow,
+  ImpositionSheet,
+  ImpositionState,
+} from '../imposition/types';
 import { computeFitZoom } from '../imposition/zoom';
 import { CSS_PX_PER_MM, MM_PER_INCH } from '../units';
 import { nestedSvgMarkup } from '../utils/sanitizeSvg';
@@ -18,7 +25,8 @@ import { SheetTabs } from './SheetTabs';
 export type ExportPdfResult = 'exported' | 'skipped-busy' | 'nothing-to-export';
 
 export interface ImpositionCanvasHandle {
-  exportPDF(onProgress?: (done: number, total: number) => void): Promise<ExportPdfResult>;
+  /** onProgress 的 label 是該層的繁中名稱（原圖／白墨／刀模），done／total 是該層目前的截圖進度 */
+  exportPDF(onProgress?: (label: string, done: number, total: number) => void): Promise<ExportPdfResult>;
   /** 讓整個版面剛好放進目前的視窗；還沒掛上 DOM 時回傳 null */
   fitZoom(): number | null;
 }
@@ -57,6 +65,14 @@ const PDF_DPI = 300;
 const MAX_CANVAS_PX = 4000;
 /** 對應版面外層的 p-6 */
 const VIEWPORT_PADDING_PX = 24;
+/** 同一個 tick 連發多個檔案下載會被瀏覽器擋掉，每層的 PDF 之間隔一下 */
+const DOWNLOAD_GAP_MS = 250;
+/** 白墨分色版的印刷慣例：有墨處為黑。只覆寫 PDF 暫存區截圖用的顏色，畫布本身的顯示色不受影響 */
+const UNDERPRINT_PDF_COLOR = '#000000';
+
+const KIND_LABELS: Record<ImpositionLayerKind, string> = { artwork: '原圖', underprint: '白墨', cut: '刀模' };
+
+const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
 /** 在 active 期間監聽整個視窗的滑鼠移動與放開 */
 function useWindowMouse(active: boolean, onMove: (e: MouseEvent) => void, onUp: () => void): void {
@@ -199,18 +215,18 @@ async function captureSheet(el: HTMLDivElement, widthMm: number): Promise<string
   }
 }
 
-async function buildSheetsPdf(pages: readonly { dataUrl: string; widthMm: number; heightMm: number }[]): Promise<void> {
+async function buildSheetsPdf(pages: readonly { dataUrl: string; widthMm: number; heightMm: number }[], filename: string): Promise<void> {
   const { jsPDF } = await import('jspdf');
   const first = pages[0];
   const doc = new jsPDF({ orientation: first.widthMm > first.heightMm ? 'l' : 'p', unit: 'mm', format: [first.widthMm, first.heightMm] });
   pages.forEach((page, index) => {
     if (index > 0) doc.addPage([page.widthMm, page.heightMm], page.widthMm > page.heightMm ? 'l' : 'p');
-    // PDF 頁面不支援真正透明，先鋪白底
+    // PDF 頁面不支援真正透明，先鋪白底——白墨層也一樣維持白底，有墨處為黑，不是把底色改成黑或深灰
     doc.setFillColor(255, 255, 255);
     doc.rect(0, 0, page.widthMm, page.heightMm, 'F');
     doc.addImage(page.dataUrl, 'PNG', 0, 0, page.widthMm, page.heightMm);
   });
-  doc.save('imposition-layout.pdf');
+  doc.save(filename);
 }
 
 const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProps>(({ state, update, colors, onDropFiles }, ref) => {
@@ -254,7 +270,7 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
   useWindowMouse(pan !== null, onPanMove, () => setPan(null));
 
   useImperativeHandle(ref, () => ({
-    exportPDF: async (onProgress?: (done: number, total: number) => void) => {
+    exportPDF: async (onProgress?: (label: string, done: number, total: number) => void) => {
       // 重入防護：正在匯出時再次呼叫直接不做事，避免兩個呼叫共用同一份 stageRefs／stage
       // ——先跑完的那個在 finally 清空暫存區，會讓還在跑的那個拿不到元素而悄悄漏頁。
       // 回傳 'skipped-busy' 而不是直接 resolve：呼叫端必須能分辨「這次真的匯出了」與
@@ -273,31 +289,50 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
         // （旗標由別人清）就會沒有人清旗標，PDF 按鈕永久停用。所以獨立用
         // 'nothing-to-export' 表示「沒事做，但旗標由我自己清」。
         if (sheets.length === 0) return 'nothing-to-export';
-        // 在按下的當下把要匯出的內容整包凍結成快照，避免匯出途中使用者的操作
-        // （拖曳、刪除、切換顯示、重新排圖、改色）讓還沒截圖的版面讀到不一致的資料
-        const snapshot: StageSnapshot = {
-          sheets: sheets.map(s => ({ sheet: s, instances: state.instances.filter(i => i.sheetId === s.id) })),
-          layerById,
-          show: state.show,
-          colors,
-        };
-        setStage(snapshot);
+        // 依 kindsWithContent 決定要輸出哪幾層——與 SVG 分層匯出（buildLayeredExportFiles）
+        // 共用同一個判準，不各寫一套。sheets.length > 0 已經代表至少有一個已排入且
+        // 存在的圖層，kindsWithContent 的 artwork 規則必定成立，所以 kinds 理論上
+        // 不會是空陣列；但這個保證同樣來自別處，一旦分岔就落回「沒人清旗標」的情況，
+        // 所以仍然用會自己清旗標的 'nothing-to-export' 分支處理，不用 'skipped-busy'。
+        const kinds = kindsWithContent(state);
+        if (kinds.length === 0) return 'nothing-to-export';
+        // 在按下的當下把「這次要匯出哪些版面、哪些項目」整包凍結，避免匯出途中使用者的
+        // 操作（拖曳、刪除、切換顯示、重新排圖、改色）讓還沒截圖的版面讀到不一致的資料；
+        // 每一層各自的 show／colors 在下面迴圈裡決定，不沿用 state.show
+        const sheetInstances = sheets.map(s => ({ sheet: s, instances: state.instances.filter(i => i.sheetId === s.id) }));
+        // 畫面外暫存區（pdf-export-stage）在整個多層匯出期間持續掛著，只在最外層的
+        // finally 卸載一次——不要在每一層之間卸載又重新掛上：e2e 靠「暫存區存在＝匯出
+        // 還在跑」判斷重入防護與切分頁的行為，若中途曾經完全消失，會被誤判成已經匯出完成。
         try {
-          await nextPaint();
-          const pages: { dataUrl: string; widthMm: number; heightMm: number }[] = [];
-          for (const [index, { sheet: s }] of snapshot.sheets.entries()) {
-            const el = stageRefs.current.get(s.id);
-            // 預期存在卻拿不到 el 一律視為失敗：安靜跳過會少一頁卻不會被任何人發現
-            if (!el) throw new Error(`版面 ${s.id} 的暫存區元素不存在，無法匯出`);
-            pages.push({ dataUrl: await captureSheet(el, s.widthMm), widthMm: s.widthMm, heightMm: s.heightMm });
-            onProgress?.(index + 1, snapshot.sheets.length);
+          for (const [kindIndex, kind] of kinds.entries()) {
+            // 每一層各自產生一個 PDF 檔案；檔案之間留間隔，避開瀏覽器對同一個 tick
+            // 連續下載的防護（與 SVG 分層匯出同樣的理由）
+            if (kindIndex > 0) await wait(DOWNLOAD_GAP_MS);
+            const snapshot: StageSnapshot = {
+              sheets: sheetInstances,
+              layerById,
+              show: { artwork: kind === 'artwork', underprint: kind === 'underprint', cut: kind === 'cut' },
+              // 白墨要給印刷廠，分色版的慣例是「有墨處為黑」：只覆寫這一層截圖用的顏色，
+              // 其餘層（原圖／刀模）照設定色走，頁面底色也維持白色（見 buildSheetsPdf）
+              colors: kind === 'underprint' ? { ...colors, underprint: UNDERPRINT_PDF_COLOR } : colors,
+            };
+            setStage(snapshot);
+            await nextPaint();
+            const pages: { dataUrl: string; widthMm: number; heightMm: number }[] = [];
+            for (const [index, { sheet: s }] of snapshot.sheets.entries()) {
+              const el = stageRefs.current.get(s.id);
+              // 預期存在卻拿不到 el 一律視為失敗：安靜跳過會少一頁卻不會被任何人發現
+              if (!el) throw new Error(`版面 ${s.id} 的暫存區元素不存在，無法匯出`);
+              pages.push({ dataUrl: await captureSheet(el, s.widthMm), widthMm: s.widthMm, heightMm: s.heightMm });
+              onProgress?.(KIND_LABELS[kind], index + 1, snapshot.sheets.length);
+            }
+            // 走到這裡 snapshot.sheets.length 必然 > 0（前面已經 return 'nothing-to-export'），
+            // 迴圈裡缺 el 也一律 throw，所以 pages.length 必然等於版面數：這個檢查理論上
+            // 不會成立。但如果這個推論未來被打破，寧可明確拋錯，也不要悄悄跳過
+            // buildSheetsPdf 卻仍然 return 'exported'——那正是「沒存檔卻回報成功」。
+            if (pages.length === 0) throw new Error('沒有任何版面成功截圖，無法產生 PDF');
+            await buildSheetsPdf(pages, `imposition-${kind}.pdf`);
           }
-          // 走到這裡 snapshot.sheets.length 必然 > 0（前面已經 return 'nothing-to-export'），
-          // 迴圈裡缺 el 也一律 throw，所以 pages.length 必然等於版面數：這個檢查理論上
-          // 不會成立。但如果這個推論未來被打破，寧可明確拋錯，也不要悄悄跳過
-          // buildSheetsPdf 卻仍然 return 'exported'——那正是「沒存檔卻回報成功」。
-          if (pages.length === 0) throw new Error('沒有任何版面成功截圖，無法產生 PDF');
-          await buildSheetsPdf(pages);
           return 'exported';
         } finally {
           setStage(null);

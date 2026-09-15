@@ -53,6 +53,9 @@ export interface ImpositionShow {
   cut: boolean;
 }
 
+/** 三個可獨立輸出的圖層種類；與 ImpositionShow 的鍵一一對應 */
+export type ImpositionLayerKind = 'artwork' | 'underprint' | 'cut';
+
 export interface ImpositionState {
   minGapMm: number;
   allowRotate90: boolean;
