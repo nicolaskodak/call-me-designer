@@ -8,7 +8,8 @@ export type RemoveBgSize = (typeof REMOVE_BG_SIZES)[number];
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 const API_KEY_MAX_LENGTH = 200;
 
-export const SHEET_NAME_MAX_LENGTH = 20;
+/** 現場的版面名稱最長 41 字元（3448 那筆），留餘裕給之後加長的版本號後綴 */
+export const SHEET_NAME_MAX_LENGTH = 50;
 export const SHEET_SIDE_MAX_MM = 2000;
 
 const sheetSizeSchema = z.object({

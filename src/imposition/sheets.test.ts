@@ -24,9 +24,12 @@ describe('packIntoSheets', () => {
   });
 
   it('單一小件會選面積最小的可用尺寸', () => {
+    // 斷言「面積最小」這個性質本身，而不是某個寫死的名稱，
+    // 否則每次調整 DEFAULT_SHEET_SIZES 都要回來改這一行
+    const smallest = [...DEFAULT_SHEET_SIZES].sort((a, b) => a.widthMm * a.heightMm - b.widthMm * b.heightMm)[0];
     const result = packIntoSheets([{ id: 'a', w: 100, h: 100 }], DEFAULT_SHEET_SIZES, false);
     expect(result.sheets).toHaveLength(1);
-    expect(result.sheets[0].sizeName).toBe('A4');
+    expect(result.sheets[0].sizeName).toBe(smallest.name);
     expect(result.notPlaced).toEqual([]);
   });
 
