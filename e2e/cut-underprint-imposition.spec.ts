@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { DEFAULT_SHEET_SIZES } from '../src/imposition/sheetSizes';
 import { pngFile, twoSquaresPng } from './fixtures';
 import { downloadAll, downloadText, waitForCutline } from './helpers';
+
+/** 排版會替單一小件挑面積最小的版面；從清單推導，改尺寸清單時這些測試才不會跟著壞 */
+const SMALLEST = [...DEFAULT_SHEET_SIZES].sort((a, b) => a.widthMm * a.heightMm - b.widthMm * b.heightMm)[0];
 
 test('cut line, underprint and layered imposition export', async ({ page }) => {
   await page.goto('./');
@@ -35,7 +39,7 @@ test('cut line, underprint and layered imposition export', async ({ page }) => {
   expect(byFilename['imposition-underprint-1.svg']).toContain('id="underprint"');
   expect(byFilename['imposition-cut-1.svg']).toContain('id="cut"');
   for (const content of Object.values(byFilename)) {
-    expect(content).toContain('width="297mm" height="210mm"');
+    expect(content).toContain(`width="${SMALLEST.widthMm}mm" height="${SMALLEST.heightMm}mm"`);
   }
 });
 
@@ -138,7 +142,7 @@ test('拖曳「圖＋SVG」配對到拼版畫布會觸發上傳流程', async ({
   await expect(dropzone).not.toHaveAttribute('data-drag-over', 'true');
 });
 
-const DEFAULT_SIZE_NAMES = ['A4', 'A3', 'SRA3', 'A3+', '菊八開', '菊四開', '菊對開'];
+const DEFAULT_SIZE_NAMES = DEFAULT_SHEET_SIZES.map(s => s.name);
 const COPIES = 5;
 
 test('版面塞不下時自動開新版面，項目不重複也不遺漏', async ({ page }) => {

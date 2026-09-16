@@ -49,8 +49,9 @@ export function SliderField({ label, value, min, max, step, display, hint, testI
 export function ToggleField({ label, checked, testId, onChange }: { label: string; checked: boolean; testId?: string; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center justify-between gap-3 p-2 bg-neutral-700/30 rounded border border-neutral-700 text-xs">
-      <span className="text-neutral-300">{label}</span>
-      <input type="checkbox" className="h-4 w-4" checked={checked} data-testid={testId} onChange={e => onChange(e.target.checked)} />
+      {/* 版面名稱可能長達 40 幾個字：span 要能收縮換行，checkbox 不能被擠扁 */}
+      <span className="text-neutral-300 min-w-0 break-words">{label}</span>
+      <input type="checkbox" className="h-4 w-4 shrink-0" checked={checked} data-testid={testId} onChange={e => onChange(e.target.checked)} />
     </label>
   );
 }
