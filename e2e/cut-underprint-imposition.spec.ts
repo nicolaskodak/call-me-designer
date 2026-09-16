@@ -43,6 +43,37 @@ test('cut line, underprint and layered imposition export', async ({ page }) => {
   }
 });
 
+const EXPORT_BUTTONS = [
+  'export-imposition-layers',
+  'export-imposition-cut',
+  'export-imposition-underprint',
+  'export-imposition-pdf',
+];
+
+test('沒按「排圖」不讓匯出，按了才解鎖', async ({ page }) => {
+  await page.goto('./');
+  await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
+  await waitForCutline(page, '1');
+  await page.getByTestId('tab-underprint').click();
+  await expect(page.getByTestId('under-island-count')).toHaveText('2');
+  await page.getByTestId('send-to-imposition-under').click();
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+
+  // 此時項目已經掛在初始那張版面上（sheetId 不是 null），但那張版面的尺寸不在使用者的
+  // 清單裡；沒有這道把關就會匯出 297×210 的檔案
+  await expect(page.getByTestId('imposition-export-needs-layout')).toBeVisible();
+  for (const id of EXPORT_BUTTONS) {
+    await expect(page.getByTestId(id)).toBeDisabled();
+  }
+
+  await page.getByTestId('imposition-auto-layout').click();
+
+  await expect(page.getByTestId('imposition-export-needs-layout')).toHaveCount(0);
+  for (const id of EXPORT_BUTTONS) {
+    await expect(page.getByTestId(id)).toBeEnabled();
+  }
+});
+
 test('拖曳拼版項目會依滑鼠位移量精準移動', async ({ page }) => {
   await page.goto('./');
   await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));

@@ -127,6 +127,10 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   // 匯出涵蓋所有版面（buildSheetSvgs 逐版面各出一檔），按鈕的啟用判準要跟涵蓋範圍一致：
   // 只要有任一項目已經排進某張版面（sheetId 不是 null），就有東西可以匯出
   const hasExportableItems = state.instances.some(i => i.sheetId !== null);
+  // 光有「排進版面的項目」不夠：剛上傳時項目就已經掛在初始那張版面上了，而那張版面的尺寸
+  // 與使用者的清單無關（實測會匯出 297×210 的檔案）。所以還要求擺位確實是排圖跑出來的。
+  // 排圖後手動拖曳不會把 layoutStale 設回 true，微調完仍然匯得出去。
+  const canExport = hasExportableItems && !state.layoutStale;
   // sheetId 為 null 有兩種成因：項目比所有尺寸都大，或版面數已達上限，這裡不猜測是哪一種
   const notPlacedWarnings = notPlacedCount > 0
     ? [
@@ -187,16 +191,21 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
         ) : null}
       </Section>
       <Section title="匯出">
-        <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-layers">
+        {state.layoutStale && state.instances.length > 0 ? (
+          <p className="text-[10px] text-amber-300" data-testid="imposition-export-needs-layout">
+            請先按「排圖」才能匯出：目前的擺位還不是排圖的結果，直接匯出會得到與版面清單無關的尺寸。
+          </p>
+        ) : null}
+        <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!canExport || props.isSvgExporting} testId="export-imposition-layers">
           <Download className="w-3 h-3" /> 分層 SVG（依內容分層，只輸出有內容的層，每層每張版面各一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportCut} disabled={!hasExportableItems || props.isSvgExporting} testId="export-imposition-cut">
+        <ActionButton onClick={props.onExportCut} disabled={!canExport || props.isSvgExporting} testId="export-imposition-cut">
           <Download className="w-3 h-3" /> 只有刀模 SVG（每張版面一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportUnderprint} disabled={!hasExportableItems || !hasUnderprint || props.isSvgExporting} testId="export-imposition-underprint">
+        <ActionButton onClick={props.onExportUnderprint} disabled={!canExport || !hasUnderprint || props.isSvgExporting} testId="export-imposition-underprint">
           <Download className="w-3 h-3" /> 只有白墨 SVG（每張版面一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportPdf} disabled={!hasExportableItems || props.isPdfExporting} testId="export-imposition-pdf">
+        <ActionButton onClick={props.onExportPdf} disabled={!canExport || props.isPdfExporting} testId="export-imposition-pdf">
           <FileText className="w-3 h-3" /> PDF 匯出（點陣，依內容分層，最多 3 個檔案）
         </ActionButton>
         {hasUnderprint ? (

@@ -67,6 +67,11 @@ export interface ImpositionState {
   activeSheetId: string;
   selectedInstanceId: string | null;
   lastLayoutMessage: string | null;
+  /**
+   * 目前的擺位不是「排圖」跑出來的結果（剛上傳、改份數、改尺寸勾選、切換旋轉都會變 true）。
+   * 匯出把關用這個旗標：沒排過圖就匯出，會拿到初始那張與清單無關的版面尺寸。
+   */
+  layoutStale: boolean;
   /** 這次排圖不使用的尺寸名稱；空陣列＝全部啟用 */
   disabledSizeNames: string[];
 }
@@ -75,7 +80,9 @@ const DEFAULT_SHEET: ImpositionSheet = { id: 'sheet-1', sizeName: 'A4', widthMm:
 
 export const DEFAULT_IMPOSITION_STATE: ImpositionState = {
   minGapMm: 3,
-  allowRotate90: false,
+  // 預設允許旋轉：現行清單裡最小的幾張版面全是直式，關掉旋轉時一張 400×100 的圖
+  // 會從 310×420 跳到 565×405（實測 1.76 倍面積）。有方向性的圖再由使用者關掉。
+  allowRotate90: true,
   zoom: 1,
   show: { artwork: true, underprint: true, cut: true },
   layers: [],
@@ -84,6 +91,8 @@ export const DEFAULT_IMPOSITION_STATE: ImpositionState = {
   activeSheetId: DEFAULT_SHEET.id,
   selectedInstanceId: null,
   lastLayoutMessage: null,
+  // 初始沒有任何項目，談不上過期；第一次上傳圖層就會被 markLayoutStale 設成 true
+  layoutStale: false,
   disabledSizeNames: [],
 };
 
