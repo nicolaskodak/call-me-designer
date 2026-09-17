@@ -388,3 +388,43 @@ describe('尺寸勾選', () => {
     expect(enabledSizes(state, ALL)).toEqual(ALL);
   });
 });
+
+describe('layoutStale：匯出把關的依據', () => {
+  it('預設允許 90° 旋轉', () => {
+    // 現行清單裡最小的幾張版面全是直式，關掉旋轉時一張 400×100 的圖會從 310×420
+    // 跳到 565×405。這個預設是刻意選的，改動它要連帶重新評估浪費多少板材。
+    expect(DEFAULT_IMPOSITION_STATE.allowRotate90).toBe(true);
+  });
+
+  it('初始狀態沒有項目，不算過期', () => {
+    expect(DEFAULT_IMPOSITION_STATE.layoutStale).toBe(false);
+  });
+
+  it('剛上傳的圖層算過期——此時的擺位還在初始那張與清單無關的版面上', () => {
+    expect(withLayer().layoutStale).toBe(true);
+  });
+
+  it('排圖後不再過期', () => {
+    const next = idGen();
+    expect(autoLayout(withLayer(layer(), next), SIZES, next).layoutStale).toBe(false);
+  });
+
+  it('排圖後手動拖曳不會讓排版過期，微調完仍匯得出去', () => {
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer(), next), SIZES, next);
+    expect(moveInstance(laid, laid.instances[0].id, 12, 34).layoutStale).toBe(false);
+  });
+
+  it('改份數、切換尺寸勾選、切換旋轉都會讓排版過期', () => {
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer(), next), SIZES, next);
+    expect(setLayerTotalCount(laid, 'L1', 3, next).layoutStale).toBe(true);
+    expect(toggleSheetSize(laid, SIZES[0].name).layoutStale).toBe(true);
+    expect(setAllowRotate(laid, !laid.allowRotate90).layoutStale).toBe(true);
+  });
+
+  it('沒有任何啟用尺寸時排圖不算數，過期狀態要維持', () => {
+    const next = idGen();
+    expect(autoLayout(withLayer(layer(), next), [], next).layoutStale).toBe(true);
+  });
+});

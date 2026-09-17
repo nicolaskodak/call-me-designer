@@ -11,6 +11,17 @@ export const LAYOUT_STALE_MESSAGE = '圖層或設定有變動，請按「排圖�
 /** 版面尺寸清單非空、但全部被停用時，排圖按鈕會停用；這句話同時是按鈕停用當下的訊息，也是面板上的提示文字 */
 export const NO_ENABLED_SIZE_MESSAGE = '請先勾選至少一種版面尺寸。';
 
+/**
+ * 「擺位已經不是排圖的結果」要同時更新旗標與提示文字：旗標決定匯出按鈕能不能按，
+ * 文字負責告訴使用者為什麼。兩者分開設，遲早會出現「畫面說請重排、按鈕卻讓你匯出」的
+ * 落差，所以綁成同一個動作——呼叫端無法只設其中一個。
+ */
+const markLayoutStale = (state: ImpositionState): ImpositionState => ({
+  ...state,
+  layoutStale: true,
+  lastLayoutMessage: LAYOUT_STALE_MESSAGE,
+});
+
 export function layerBoxMm(layer: ImpositionLayer, rotationDeg: 0 | 90): { w: number; h: number } {
   const w = pxToMm(layer.layoutBoxPx.width, layer.dpi);
   const h = pxToMm(layer.layoutBoxPx.height, layer.dpi);
@@ -21,27 +32,25 @@ const instancesFor = (layerId: string, count: number, newId: IdFactory, sheetId:
   Array.from({ length: count }, () => ({ id: newId(), layerId, sheetId, xMm: 0, yMm: 0, rotationDeg: 0 as const }));
 
 export function addLayers(state: ImpositionState, layers: readonly ImpositionLayer[], newId: IdFactory): ImpositionState {
-  return {
+  // 新項目都疊在 (0,0)，提示使用者重新排圖
+  return markLayoutStale({
     ...state,
     layers: [...state.layers, ...layers],
     instances: [
       ...state.instances,
       ...layers.flatMap(l => instancesFor(l.id, Math.max(1, l.totalCount), newId, state.activeSheetId)),
     ],
-    // 新項目都疊在 (0,0)，提示使用者重新排圖
-    lastLayoutMessage: LAYOUT_STALE_MESSAGE,
-  };
+  });
 }
 
 export function upsertSourceLayer(state: ImpositionState, incoming: ImpositionLayer, newId: IdFactory): ImpositionState {
   const existing = incoming.sourceId ? state.layers.find(l => l.sourceId === incoming.sourceId) : undefined;
   if (!existing) return addLayers(state, [{ ...incoming, totalCount: 1 }], newId);
-  return {
+  // 外框可能改變，需要重新排圖
+  return markLayoutStale({
     ...state,
     layers: state.layers.map(l => (l.id === existing.id ? { ...incoming, id: existing.id, totalCount: existing.totalCount } : l)),
-    // 外框可能改變，需要重新排圖
-    lastLayoutMessage: LAYOUT_STALE_MESSAGE,
-  };
+  });
 }
 
 /** 沒有任何項目的版面就移除；至少保留一張，畫布才不會空白 */
@@ -62,7 +71,7 @@ const removeInstances = (state: ImpositionState, ids: ReadonlySet<string>): Impo
 
 const removeLayer = (state: ImpositionState, layerId: string): ImpositionState => {
   const ids = new Set(state.instances.filter(i => i.layerId === layerId).map(i => i.id));
-  return { ...removeInstances(state, ids), layers: state.layers.filter(l => l.id !== layerId), lastLayoutMessage: LAYOUT_STALE_MESSAGE };
+  return markLayoutStale({ ...removeInstances(state, ids), layers: state.layers.filter(l => l.id !== layerId) });
 };
 
 export function setLayerTotalCount(state: ImpositionState, layerId: string, totalCount: number, newId: IdFactory): ImpositionState {
@@ -73,14 +82,13 @@ export function setLayerTotalCount(state: ImpositionState, layerId: string, tota
   const layers = state.layers.map(l => (l.id === layerId ? { ...l, totalCount: total } : l));
   if (current.length > total) {
     const removed = new Set(current.slice(total).map(i => i.id));
-    return { ...removeInstances({ ...state, layers }, removed), lastLayoutMessage: LAYOUT_STALE_MESSAGE };
+    return markLayoutStale(removeInstances({ ...state, layers }, removed));
   }
-  return {
+  return markLayoutStale({
     ...state,
     layers,
     instances: [...state.instances, ...instancesFor(layerId, total - current.length, newId, state.activeSheetId)],
-    lastLayoutMessage: LAYOUT_STALE_MESSAGE,
-  };
+  });
 }
 
 export function deleteInstance(state: ImpositionState, instanceId: string): ImpositionState {
@@ -136,6 +144,8 @@ export function autoLayout(state: ImpositionState, sizes: readonly SheetSize[], 
     // 排圖前選到的版面可能不是保留下來的那一張，沿用會指向一張已經不存在的版面
     activeSheetId: nextSheets[0]?.id ?? state.activeSheetId,
     instances,
+    // 這是唯一把 layoutStale 清成 false 的地方：擺位確實是這次排圖算出來的
+    layoutStale: false,
     lastLayoutMessage: `排圖完成：${sheets.length} 個版面，排入 ${placedCount} 個${notPlacedNote}。${rotateNote}`,
   };
 }
@@ -150,12 +160,12 @@ export const selectInstance = (state: ImpositionState, id: string | null): Impos
   selectedInstanceId: id,
 });
 
-export const setAllowRotate = (state: ImpositionState, allow: boolean): ImpositionState => ({
-  ...state,
-  allowRotate90: allow,
-  instances: allow ? state.instances : state.instances.map(i => ({ ...i, rotationDeg: 0 as const })),
-  lastLayoutMessage: LAYOUT_STALE_MESSAGE,
-});
+export const setAllowRotate = (state: ImpositionState, allow: boolean): ImpositionState =>
+  markLayoutStale({
+    ...state,
+    allowRotate90: allow,
+    instances: allow ? state.instances : state.instances.map(i => ({ ...i, rotationDeg: 0 as const })),
+  });
 
 export const selectSheet = (state: ImpositionState, sheetId: string): ImpositionState =>
   state.sheets.some(s => s.id === sheetId) ? { ...state, activeSheetId: sheetId, selectedInstanceId: null } : state;
@@ -212,13 +222,13 @@ export function kindsWithContent(state: ImpositionState): ImpositionLayerKind[] 
   return kinds;
 }
 
-export const toggleSheetSize = (state: ImpositionState, name: string): ImpositionState => ({
-  ...state,
-  disabledSizeNames: state.disabledSizeNames.includes(name)
-    ? state.disabledSizeNames.filter(n => n !== name)
-    : [...state.disabledSizeNames, name],
-  lastLayoutMessage: LAYOUT_STALE_MESSAGE,
-});
+export const toggleSheetSize = (state: ImpositionState, name: string): ImpositionState =>
+  markLayoutStale({
+    ...state,
+    disabledSizeNames: state.disabledSizeNames.includes(name)
+      ? state.disabledSizeNames.filter(n => n !== name)
+      : [...state.disabledSizeNames, name],
+  });
 
 /**
  * 設定頁刪掉的尺寸會自然從結果消失；殘留在停用名單裡的名稱，只要沒有被重用就不影響。
