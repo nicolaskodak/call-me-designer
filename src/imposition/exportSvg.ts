@@ -90,7 +90,14 @@ export interface SheetSvgFile {
   svg: string;
 }
 
-/** 每張有項目的版面產生一個 SVG；編號依版面順序，跳過空版面不會造成號碼跳號 */
+/**
+ * 每張版面產生一個 SVG，跳過「要輸出的層在這張版面上沒有內容」的組合——整份作業有白墨，
+ * 不代表每張版面都有白墨，照出會給印刷廠一個空的分色檔。
+ *
+ * 號碼在過濾**之前**就綁定到版面：跳過某一層的某張版面時，其餘檔案的號碼不會往前遞補。
+ * 這件事是承重的——使用者靠 `-2` 這個號碼把各層疊在一起對位，一旦號碼會位移，
+ * underprint-1 可能對到的是第 2 張版，比多出一個空檔案嚴重得多。
+ */
 export function buildSheetSvgs(o: {
   state: ImpositionState;
   kinds: readonly ImpositionLayerKind[];
@@ -98,17 +105,20 @@ export function buildSheetSvgs(o: {
   imageDataUrls: ReadonlyMap<string, string>;
   baseName: string;
 }): SheetSvgFile[] {
-  return sheetsWithContent(o.state).map((sheet, index) => {
-    const svg = buildImpositionSvg({
-      widthMm: sheet.widthMm,
-      heightMm: sheet.heightMm,
-      items: placedItems(o.state, sheet.id),
-      kinds: o.kinds,
-      colors: o.colors,
-      imageDataUrls: o.imageDataUrls,
+  return sheetsWithContent(o.state)
+    .map((sheet, index) => ({ sheet, number: index + 1 }))
+    .filter(({ sheet }) => kindsWithContent(o.state, sheet.id).some(kind => o.kinds.includes(kind)))
+    .map(({ sheet, number }) => {
+      const svg = buildImpositionSvg({
+        widthMm: sheet.widthMm,
+        heightMm: sheet.heightMm,
+        items: placedItems(o.state, sheet.id),
+        kinds: o.kinds,
+        colors: o.colors,
+        imageDataUrls: o.imageDataUrls,
+      });
+      return { svg, filename: `${o.baseName}-${number}.svg` };
     });
-    return { svg, filename: `${o.baseName}-${index + 1}.svg` };
-  });
 }
 
 /**
