@@ -345,7 +345,11 @@ const ImpositionCanvas = forwardRef<ImpositionCanvasHandle, ImpositionCanvasProp
             // 連續下載的防護（與 SVG 分層匯出同樣的理由）
             if (kindIndex > 0) await wait(DOWNLOAD_GAP_MS);
             const snapshot: StageSnapshot = {
-              sheets: sheetInstances,
+              // 只截「這一層在這張版面上真的有內容」的版面。整份作業有白墨，不代表每張版面
+              // 都有白墨（手動上傳的配對永遠沒有白墨），照全部版面截會多出一頁純白空白頁。
+              // 判準與 SVG 分層匯出（buildSheetSvgs）共用 kindsWithContent，不各寫一套。
+              // kind 取自全域的 kindsWithContent，必定有某張版面含這一層，所以這裡不會是空的。
+              sheets: sheetInstances.filter(({ sheet }) => kindsWithContent(state, sheet.id).includes(kind)),
               layerById,
               show: { artwork: kind === 'artwork', underprint: kind === 'underprint', cut: kind === 'cut' },
               // 白墨要給印刷廠：內容本來就是白色，顏色照設定值走，不覆寫成黑色或任何固定色

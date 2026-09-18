@@ -217,6 +217,46 @@ describe('buildLayeredExportFiles', () => {
     expect(files.some(f => f.filename.includes('cut'))).toBe(false);
   });
 
+  /** 兩張版面，各放一個圖層：s1 放 L1、s2 放 L2 */
+  const perSheet = (l1: Partial<ImpositionLayer>, l2: Partial<ImpositionLayer>): ImpositionState => ({
+    ...DEFAULT_IMPOSITION_STATE,
+    layers: [layer({ id: 'L1', ...l1 }), layer({ id: 'L2', ...l2 })],
+    sheets: [
+      { id: 's1', sizeName: 'A', widthMm: 100, heightMm: 100 },
+      { id: 's2', sizeName: 'A', widthMm: 100, heightMm: 100 },
+    ],
+    instances: [inst({ id: 'i1', layerId: 'L1', sheetId: 's1' }), inst({ id: 'i2', layerId: 'L2', sheetId: 's2' })],
+  });
+
+  it('某一層在某張版面上沒有內容時，不為那個組合產生空檔案', () => {
+    // 白墨只有 L1 有，而 L1 只在 s1 上；s2 的白墨檔會是空的 <g id="underprint"></g>
+    const files = buildLayeredExportFiles({
+      state: perSheet({}, { underprint: null }),
+      colors,
+      imageDataUrls: new Map(),
+      baseName: 'x',
+    });
+    expect(files.map(f => f.filename)).toEqual([
+      'x-artwork-1.svg',
+      'x-artwork-2.svg',
+      'x-underprint-1.svg',
+      'x-cut-1.svg',
+      'x-cut-2.svg',
+    ]);
+  });
+
+  it('跳過第 1 張版面時，號碼不會往前遞補', () => {
+    // 白墨只在第 2 張版面上有內容。號碼若跟著過濾後的順序走會變成 x-underprint-1.svg，
+    // 使用者疊圖時就會把第 2 張版的白墨疊到第 1 張版的原圖上——比多一個空檔案嚴重得多。
+    const files = buildLayeredExportFiles({
+      state: perSheet({ underprint: null }, {}),
+      colors,
+      imageDataUrls: new Map(),
+      baseName: 'x',
+    });
+    expect(files.filter(f => f.filename.includes('underprint')).map(f => f.filename)).toEqual(['x-underprint-2.svg']);
+  });
+
   it('沒有任何圖層時回傳空陣列', () => {
     const files = buildLayeredExportFiles({ state: DEFAULT_IMPOSITION_STATE, colors, imageDataUrls: new Map(), baseName: 'imposition' });
     expect(files).toEqual([]);

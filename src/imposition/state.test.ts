@@ -13,6 +13,8 @@ import {
   selectSheet,
   setAllowRotate,
   setLayerTotalCount,
+  setMinGapMm,
+  sheetsOutOfSync,
   sheetsWithContent,
   sheetUsage,
   toggleSheetSize,
@@ -426,5 +428,78 @@ describe('layoutStale：匯出把關的依據', () => {
   it('沒有任何啟用尺寸時排圖不算數，過期狀態要維持', () => {
     const next = idGen();
     expect(autoLayout(withLayer(layer(), next), [], next).layoutStale).toBe(true);
+  });
+
+  it('改最小間距也算過期——它跟旋轉、尺寸勾選一樣是排圖的輸入', () => {
+    const next = idGen();
+    const laid = autoLayout(withLayer(layer(), next), SIZES, next);
+    const widened = setMinGapMm(laid, 8);
+    expect(widened.minGapMm).toBe(8);
+    expect(widened.layoutStale).toBe(true);
+  });
+});
+
+describe('sheetsOutOfSync：設定頁改過尺寸的偵測', () => {
+  const laidOut = () => {
+    const next = idGen();
+    return autoLayout(withLayer(layer(), next), SIZES, next);
+  };
+
+  it('尺寸沒變時是空的', () => {
+    expect(sheetsOutOfSync(laidOut(), SIZES)).toEqual([]);
+  });
+
+  it('長寬被改過就抓得到', () => {
+    const laid = laidOut();
+    const edited = SIZES.map(z => (z.name === laid.sheets[0].sizeName ? { ...z, widthMm: z.widthMm + 10 } : z));
+    expect(sheetsOutOfSync(laid, edited).map(s => s.sizeName)).toEqual([laid.sheets[0].sizeName]);
+  });
+
+  it('尺寸整個被刪掉就抓得到', () => {
+    const laid = laidOut();
+    const removed = SIZES.filter(z => z.name !== laid.sheets[0].sizeName);
+    expect(sheetsOutOfSync(laid, removed).map(s => s.sizeName)).toEqual([laid.sheets[0].sizeName]);
+  });
+
+  it('還沒有內容的版面不算——初始那張寫死的版面不該一直跳警告', () => {
+    expect(sheetsOutOfSync(DEFAULT_IMPOSITION_STATE, [])).toEqual([]);
+  });
+});
+
+describe('moveInstance 的邊界夾限', () => {
+  const onOneSheet = () => {
+    const next = idGen();
+    return autoLayout(withLayer(layer(), next), [{ name: 'S', widthMm: 300, heightMm: 400 }], next);
+  };
+
+  it('版面內的移動不受影響', () => {
+    const laid = onOneSheet();
+    const moved = moveInstance(laid, laid.instances[0].id, 12, 34).instances[0];
+    expect([moved.xMm, moved.yMm]).toEqual([12, 34]);
+  });
+
+  it('往負的拖會被夾在 0', () => {
+    const laid = onOneSheet();
+    const moved = moveInstance(laid, laid.instances[0].id, -900, -900).instances[0];
+    expect([moved.xMm, moved.yMm]).toEqual([0, 0]);
+  });
+
+  it('往外拖會被夾在「版面尺寸減項目尺寸」', () => {
+    const laid = onOneSheet();
+    const box = layerBoxMm(laid.layers[0], laid.instances[0].rotationDeg);
+    const moved = moveInstance(laid, laid.instances[0].id, 9999, 9999).instances[0];
+    expect([moved.xMm, moved.yMm]).toEqual([300 - box.w, 400 - box.h]);
+  });
+
+  it('項目比版面大時夾到 0，上界不會變成負數', () => {
+    const next = idGen();
+    const s = withLayer(layer({ layoutBoxPx: { x: 0, y: 0, width: 500, height: 500 } }), next);
+    const forced: ImpositionState = {
+      ...s,
+      sheets: [{ id: 'sheet-1', sizeName: 'S', widthMm: 100, heightMm: 100 }],
+      instances: s.instances.map(i => ({ ...i, sheetId: 'sheet-1' })),
+    };
+    const moved = moveInstance(forced, forced.instances[0].id, 50, 50).instances[0];
+    expect([moved.xMm, moved.yMm]).toEqual([0, 0]);
   });
 });

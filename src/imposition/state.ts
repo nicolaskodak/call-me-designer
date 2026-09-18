@@ -150,9 +150,26 @@ export function autoLayout(state: ImpositionState, sizes: readonly SheetSize[], 
   };
 }
 
+/**
+ * 拖曳後的座標夾限在版面內。沒有夾限時項目可以被拖到版面外：畫布用 overflow-hidden 裁掉它，
+ * 使用者再也點不到；匯出時它仍在檔案裡，但座標落在 viewBox／紙張外，RIP 不會成像——
+ * 客戶訂 20 片實際印 19 片，而且 notPlacedCount 只算 sheetId 為 null 的，抓不到這種。
+ * 項目比版面還大時夾到 0（靠左上），不要讓上界變成負數。
+ */
+const clampToSheet = (state: ImpositionState, inst: ImpositionInstance, xMm: number, yMm: number): { xMm: number; yMm: number } => {
+  const sheet = state.sheets.find(s => s.id === inst.sheetId);
+  const layer = state.layers.find(l => l.id === inst.layerId);
+  if (!sheet || !layer) return { xMm, yMm };
+  const { w, h } = layerBoxMm(layer, inst.rotationDeg);
+  return {
+    xMm: Math.min(Math.max(0, xMm), Math.max(0, sheet.widthMm - w)),
+    yMm: Math.min(Math.max(0, yMm), Math.max(0, sheet.heightMm - h)),
+  };
+};
+
 export const moveInstance = (state: ImpositionState, id: string, xMm: number, yMm: number): ImpositionState => ({
   ...state,
-  instances: state.instances.map(i => (i.id === id ? { ...i, xMm, yMm } : i)),
+  instances: state.instances.map(i => (i.id === id ? { ...i, ...clampToSheet(state, i, xMm, yMm) } : i)),
 });
 
 export const selectInstance = (state: ImpositionState, id: string | null): ImpositionState => ({
@@ -166,6 +183,14 @@ export const setAllowRotate = (state: ImpositionState, allow: boolean): Impositi
     allowRotate90: allow,
     instances: allow ? state.instances : state.instances.map(i => ({ ...i, rotationDeg: 0 as const })),
   });
+
+/**
+ * 最小間距是 autoLayout 的輸入參數，跟 allowRotate90、尺寸勾選同一類：改了它，畫面上的擺位
+ * 不會跟著動，但分頁標籤的使用率會立刻重算，同一畫面出現兩個互相矛盾的數字，而匯出吐出去的
+ * 仍是舊間距。所以改間距一樣要標記需重排。
+ */
+export const setMinGapMm = (state: ImpositionState, minGapMm: number): ImpositionState =>
+  markLayoutStale({ ...state, minGapMm });
 
 export const selectSheet = (state: ImpositionState, sheetId: string): ImpositionState =>
   state.sheets.some(s => s.id === sheetId) ? { ...state, activeSheetId: sheetId, selectedInstanceId: null } : state;
@@ -201,6 +226,19 @@ export function sheetsWithContent(state: ImpositionState): ImpositionSheet[] {
 }
 
 /**
+ * 已排好的版面之中，尺寸已經對不上設定頁清單的那些（長寬被改、改了名、或整個被刪掉）。
+ *
+ * 設定頁改動尺寸清單時，完全不會經過拼版狀態，所以 layoutStale 不會變 true。與其加一個
+ * useEffect 去同步（要處理首次掛載、還得用值比較而不是參考比較，而且日後多一條改動路徑
+ * 就會再漏一次），不如每次直接從兩邊的資料推導——推導出來的東西沒有「忘記通知」這種失敗模式。
+ */
+export function sheetsOutOfSync(state: ImpositionState, sizes: readonly SheetSize[]): ImpositionSheet[] {
+  return sheetsWithContent(state).filter(
+    sheet => !sizes.some(z => z.name === sheet.sizeName && z.widthMm === sheet.widthMm && z.heightMm === sheet.heightMm),
+  );
+}
+
+/**
  * 有實際內容的圖層種類，只計入已排進版面（instance.sheetId 不是 null 且引用著存在的圖層——
  * 判準與 sheetsWithContent 一致）的圖層：
  * - artwork：只要有任何已排入的圖層就算有（每個圖層都有 imageUrl）
@@ -212,8 +250,12 @@ export function sheetsWithContent(state: ImpositionState): ImpositionSheet[] {
  * 靠別處的不變式才碰巧一致」這個教訓收斂成單一函式，這裡沿用同樣的做法，不要重蹈覆轍。
  * 回傳順序固定為 ['artwork', 'underprint', 'cut'] 的子集。
  */
-export function kindsWithContent(state: ImpositionState): ImpositionLayerKind[] {
-  const placedLayerIds = new Set(state.instances.filter(i => i.sheetId !== null).map(i => i.layerId));
+export function kindsWithContent(state: ImpositionState, sheetId?: string): ImpositionLayerKind[] {
+  const placedLayerIds = new Set(
+    state.instances
+      .filter(i => i.sheetId !== null && (sheetId === undefined || i.sheetId === sheetId))
+      .map(i => i.layerId),
+  );
   const placed = state.layers.filter(l => placedLayerIds.has(l.id));
   const kinds: ImpositionLayerKind[] = [];
   if (placed.length > 0) kinds.push('artwork');

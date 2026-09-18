@@ -74,6 +74,61 @@ test('沒按「排圖」不讓匯出，按了才解鎖', async ({ page }) => {
   }
 });
 
+/** 上傳 → 送到拼版 → 排圖，停在「可以匯出」的狀態 */
+async function layoutOneLayer(page: import('@playwright/test').Page): Promise<void> {
+  await page.goto('./');
+  await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));
+  await waitForCutline(page, '1');
+  await page.getByTestId('tab-underprint').click();
+  await expect(page.getByTestId('under-island-count')).toHaveText('2');
+  await page.getByTestId('send-to-imposition-under').click();
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+  await page.getByTestId('imposition-auto-layout').click();
+  await expect(page.getByTestId('imposition-export-needs-layout')).toHaveCount(0);
+}
+
+test('清空「總數」欄位不會刪掉圖層', async ({ page }) => {
+  await layoutOneLayer(page);
+  const count = page.getByTitle('設為 0 會刪除該圖層');
+
+  // 清空欄位：修正前這一瞬間 Number('') 是 0，圖層連同圖片直接消失。
+  // 「沒有送出」比「圖層還在」更強：排圖後的提示不該因為清空而出現。
+  await count.fill('');
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+  await expect(page.getByTestId('imposition-export-needs-layout')).toHaveCount(0);
+
+  // 有效值仍然即時套用——提示出現代表 setLayerTotalCount 真的跑了
+  await count.fill('15');
+  await expect(page.getByTestId('imposition-export-needs-layout')).toBeVisible();
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('1');
+
+  // 明確輸入 0 仍然刪除圖層，維持 tooltip 寫的語意
+  await count.fill('0');
+  await expect(page.getByTestId('imposition-layer-count')).toHaveText('0');
+});
+
+test('在設定頁改動版面尺寸後，匯出會被擋住', async ({ page }) => {
+  await layoutOneLayer(page);
+  await expect(page.getByTestId('export-imposition-layers')).toBeEnabled();
+
+  // 排圖用的是清單裡面積最小的那一個，也就是第 0 列
+  await page.getByTestId('tab-settings').click();
+  const width = page.getByTestId('sheet-size-width-0');
+  await width.fill('555');
+  await width.blur();
+
+  await page.getByTestId('tab-imposition').click();
+  await expect(page.getByTestId('imposition-export-size-changed')).toBeVisible();
+  for (const id of EXPORT_BUTTONS) {
+    await expect(page.getByTestId(id)).toBeDisabled();
+  }
+
+  // 重新排圖後解除
+  await page.getByTestId('imposition-auto-layout').click();
+  await expect(page.getByTestId('imposition-export-size-changed')).toHaveCount(0);
+  await expect(page.getByTestId('export-imposition-layers')).toBeEnabled();
+});
+
 test('拖曳拼版項目會依滑鼠位移量精準移動', async ({ page }) => {
   await page.goto('./');
   await page.getByTestId('source-upload').setInputFiles(pngFile('two.png', twoSquaresPng()));

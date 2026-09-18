@@ -3,7 +3,7 @@ import React from 'react';
 import { useFileDrop } from '../../hooks/useFileDrop';
 import type { SheetSize } from '../../imposition/sheetSizes';
 import { MAX_SHEETS } from '../../imposition/sheets';
-import { layerBoxMm, NO_ENABLED_SIZE_MESSAGE, setAllowRotate, toggleSheetSize } from '../../imposition/state';
+import { layerBoxMm, NO_ENABLED_SIZE_MESSAGE, setAllowRotate, setMinGapMm, sheetsOutOfSync, toggleSheetSize } from '../../imposition/state';
 import { ZOOM_OPTIONS, type ImpositionShow, type ImpositionState } from '../../imposition/types';
 import { formatMm } from '../../units';
 import { ActionButton, InfoRow, Section, SelectField, ToggleField, Warnings } from './fields';
@@ -84,6 +84,34 @@ function UploadBox({ onUpload }: { onUpload: (files: File[]) => void }) {
   );
 }
 
+/**
+ * 「總數」欄位：空字串不送出。直接把 onChange 的值丟給 onSetLayerTotalCount 的話，
+ * 清空欄位那一瞬間 Number('') 是 0，就走到「設為 0 會刪除該圖層」，把圖層連同圖片整個刪掉
+ * ——使用者只是想把 12 改成 15，而這條路沒有確認、沒有復原，imageUrl 也立刻被 revoke。
+ * 輸入「-」「e」得到 NaN，同樣不送出。有效值仍即時套用（維持原本的即時性）；
+ * 離開欄位時把顯示還原成目前值，避免停在一個沒有套用的空欄位。
+ */
+function LayerCountInput({ value, onCommit }: { value: number; onCommit: (n: number) => void }) {
+  const [draft, setDraft] = React.useState(String(value));
+  React.useEffect(() => setDraft(String(value)), [value]);
+  return (
+    <input
+      type="number"
+      min={0}
+      value={draft}
+      onChange={e => {
+        const raw = e.target.value;
+        setDraft(raw);
+        const n = Number(raw);
+        if (raw.trim() !== '' && Number.isFinite(n) && n >= 0) onCommit(Math.floor(n));
+      }}
+      onBlur={() => setDraft(String(value))}
+      className="w-14 px-2 py-1 rounded bg-neutral-800 border border-neutral-600 text-white text-xs"
+      title="設為 0 會刪除該圖層"
+    />
+  );
+}
+
 function LayerList({ state, onSetLayerTotalCount }: Pick<ImpositionPanelProps, 'state' | 'onSetLayerTotalCount'>) {
   if (state.layers.length === 0) return <div className="text-[10px] text-neutral-500">還沒有圖層。</div>;
   return (
@@ -100,14 +128,7 @@ function LayerList({ state, onSetLayerTotalCount }: Pick<ImpositionPanelProps, '
             </div>
             <label className="flex items-center gap-1 text-[10px] text-neutral-400">
               總數
-              <input
-                type="number"
-                min={0}
-                value={layer.totalCount}
-                onChange={e => onSetLayerTotalCount(layer.id, Number(e.target.value) || 0)}
-                className="w-14 px-2 py-1 rounded bg-neutral-800 border border-neutral-600 text-white text-xs"
-                title="設為 0 會刪除該圖層"
-              />
+              <LayerCountInput value={layer.totalCount} onCommit={n => onSetLayerTotalCount(layer.id, n)} />
             </label>
           </div>
         );
@@ -130,7 +151,10 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
   // 光有「排進版面的項目」不夠：剛上傳時項目就已經掛在初始那張版面上了，而那張版面的尺寸
   // 與使用者的清單無關（實測會匯出 297×210 的檔案）。所以還要求擺位確實是排圖跑出來的。
   // 排圖後手動拖曳不會把 layoutStale 設回 true，微調完仍然匯得出去。
-  const canExport = hasExportableItems && !state.layoutStale;
+  // 設定頁改動尺寸清單不會經過拼版狀態，layoutStale 不會變 true——所以這裡直接比對已排好的
+  // 版面與目前的清單。推導出來的判準沒有「忘記通知」這種失敗模式。
+  const outOfSync = sheetsOutOfSync(state, props.sheetSizes);
+  const canExport = hasExportableItems && !state.layoutStale && outOfSync.length === 0;
   // sheetId 為 null 有兩種成因：項目比所有尺寸都大，或版面數已達上限，這裡不猜測是哪一種
   const notPlacedWarnings = notPlacedCount > 0
     ? [
@@ -161,7 +185,7 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
           )}
           <p className="text-[10px] text-neutral-500">在「設定」分頁新增或刪除尺寸。</p>
         </div>
-        <MmInput label="最小間距（mm）" value={state.minGapMm} min={0} onChange={v => update(s => ({ ...s, minGapMm: v }))} />
+        <MmInput label="最小間距（mm）" value={state.minGapMm} min={0} onChange={v => update(s => setMinGapMm(s, v))} />
         <ToggleField label="允許 90° 旋轉" checked={state.allowRotate90} onChange={v => update(s => setAllowRotate(s, v))} />
         <SelectField label="縮放" value={String(state.zoom)} options={zoomOptions} onChange={v => update(s => ({ ...s, zoom: Number(v) }))} />
         <ActionButton onClick={props.onFitZoom} testId="imposition-fit">符合視窗</ActionButton>
@@ -194,6 +218,12 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
         {state.layoutStale && state.instances.length > 0 ? (
           <p className="text-[10px] text-amber-300" data-testid="imposition-export-needs-layout">
             請先按「排圖」才能匯出：目前的擺位還不是排圖的結果，直接匯出會得到與版面清單無關的尺寸。
+          </p>
+        ) : null}
+        {!state.layoutStale && outOfSync.length > 0 ? (
+          <p className="text-[10px] text-amber-300" data-testid="imposition-export-size-changed">
+            版面尺寸在「設定」分頁被改過或刪掉了（{outOfSync.map(s => s.sizeName).join('、')}），
+            現在匯出會拿到排圖當時的舊尺寸。請重新按「排圖」。
           </p>
         ) : null}
         <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!canExport || props.isSvgExporting} testId="export-imposition-layers">
