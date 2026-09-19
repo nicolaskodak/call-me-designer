@@ -239,6 +239,17 @@ export function sheetsOutOfSync(state: ImpositionState, sizes: readonly SheetSiz
 }
 
 /**
+ * 單一圖層是否含刀模／白墨內容。kindsWithContent、匯出按鈕的啟用判準、以及圖層列的標示
+ * 全部共用這兩個函式。圖層列曾經無條件寫著「刀模」，即使刀模是空的——使用者因此以為
+ * 手上有刀模檔，實際上分層匯出安靜地少了那一層。判準只有一個真相來源才不會再分岔。
+ */
+export const layerHasCut = (layer: ImpositionLayer): boolean =>
+  layer.cut.kind === 'svg' || (layer.cut.kind === 'paths' && layer.cut.paths.length > 0);
+
+export const layerHasUnderprint = (layer: ImpositionLayer): boolean =>
+  layer.underprint !== null && layer.underprint.length > 0;
+
+/**
  * 有實際內容的圖層種類，只計入已排進版面（instance.sheetId 不是 null 且引用著存在的圖層——
  * 判準與 sheetsWithContent 一致）的圖層：
  * - artwork：只要有任何已排入的圖層就算有（每個圖層都有 imageUrl）
@@ -259,8 +270,8 @@ export function kindsWithContent(state: ImpositionState, sheetId?: string): Impo
   const placed = state.layers.filter(l => placedLayerIds.has(l.id));
   const kinds: ImpositionLayerKind[] = [];
   if (placed.length > 0) kinds.push('artwork');
-  if (placed.some(l => l.underprint !== null && l.underprint.length > 0)) kinds.push('underprint');
-  if (placed.some(l => l.cut.kind === 'svg' || (l.cut.kind === 'paths' && l.cut.paths.length > 0))) kinds.push('cut');
+  if (placed.some(layerHasUnderprint)) kinds.push('underprint');
+  if (placed.some(layerHasCut)) kinds.push('cut');
   return kinds;
 }
 

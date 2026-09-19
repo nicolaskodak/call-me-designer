@@ -106,6 +106,9 @@ const App: React.FC = () => {
   // 共用同一個值餵給 CutlinePanel 與 UnderprintPanel 的「送到 Imposition」保護，
   // 不要兩邊各自從 underGeometry.status 重新算一次（理由見 isGeometryPending 的註解）
   const underprintGeometryPending = isGeometryPending(underGeometry.status);
+  // 同理用在刀模：sendToImposition 在點擊當下才呼叫 cutEditor.getPathData()，刀模還沒算完
+  // 就送出會把圖層定型成「沒有刀模」。hasSource 只看圖片載入完沒有，擋不住這條。
+  const cutGeometryPending = isGeometryPending(cutGeometry.status);
 
   const imposition = useImposition(activeTab === 'imposition', settings.defaultDpi, settings.sheetSizes);
   const [notice, setNotice] = useState<string | null>(null);
@@ -298,6 +301,8 @@ const App: React.FC = () => {
               onSendToImposition={sendToImposition}
               underprintEnabled={underprintEnabled}
               underprintPending={underprintGeometryPending}
+              cutPending={cutGeometryPending}
+              cutPathCount={cut.paths.length}
             />
           </>
         ) : null}
@@ -310,6 +315,8 @@ const App: React.FC = () => {
               geometry={underGeometry}
               dpi={dpi}
               hasSource={Boolean(source)}
+              cutPending={cutGeometryPending}
+              cutPathCount={cut.paths.length}
               canUndo={under.canUndo}
               canRedo={under.canRedo}
               onUndo={() => under.ref.current?.undo()}

@@ -3,8 +3,18 @@ import React from 'react';
 import { useFileDrop } from '../../hooks/useFileDrop';
 import type { SheetSize } from '../../imposition/sheetSizes';
 import { MAX_SHEETS } from '../../imposition/sheets';
-import { layerBoxMm, NO_ENABLED_SIZE_MESSAGE, setAllowRotate, setMinGapMm, sheetsOutOfSync, toggleSheetSize } from '../../imposition/state';
-import { ZOOM_OPTIONS, type ImpositionShow, type ImpositionState } from '../../imposition/types';
+import {
+  kindsWithContent,
+  layerBoxMm,
+  layerHasCut,
+  layerHasUnderprint,
+  NO_ENABLED_SIZE_MESSAGE,
+  setAllowRotate,
+  setMinGapMm,
+  sheetsOutOfSync,
+  toggleSheetSize,
+} from '../../imposition/state';
+import { ZOOM_OPTIONS, type ImpositionLayer, type ImpositionShow, type ImpositionState } from '../../imposition/types';
 import { formatMm } from '../../units';
 import { ActionButton, InfoRow, Section, SelectField, ToggleField, Warnings } from './fields';
 
@@ -112,6 +122,18 @@ function LayerCountInput({ value, onCommit }: { value: number; onCommit: (n: num
   );
 }
 
+/**
+ * 圖層實際含有哪幾層。這一行以前無條件寫著「刀模」，即使刀模是空的——使用者因此以為
+ * 手上有刀模檔，匯出卻安靜地少了那一層。判準與匯出共用 layerHasCut／layerHasUnderprint。
+ */
+function LayerMarks({ layer }: { layer: ImpositionLayer }) {
+  const marks = [layerHasCut(layer) ? '刀模' : null, layerHasUnderprint(layer) ? '白墨' : null].filter(Boolean);
+  if (marks.length === 0) {
+    return <div className="text-[10px] text-amber-300" data-testid="layer-marks">沒有刀模與白墨</div>;
+  }
+  return <div className="text-[10px] text-neutral-400" data-testid="layer-marks">{marks.join('＋')}</div>;
+}
+
 function LayerList({ state, onSetLayerTotalCount }: Pick<ImpositionPanelProps, 'state' | 'onSetLayerTotalCount'>) {
   if (state.layers.length === 0) return <div className="text-[10px] text-neutral-500">還沒有圖層。</div>;
   return (
@@ -124,7 +146,7 @@ function LayerList({ state, onSetLayerTotalCount }: Pick<ImpositionPanelProps, '
             <div className="flex-1 min-w-0">
               <div className="text-neutral-200 text-xs truncate">{layer.name}</div>
               <div className="text-[10px] text-neutral-500">{formatMm(w)} × {formatMm(h)}</div>
-              <div className="text-[10px] text-neutral-400">刀模{layer.underprint ? '＋白墨' : ''}</div>
+              <LayerMarks layer={layer} />
             </div>
             <label className="flex items-center gap-1 text-[10px] text-neutral-400">
               總數
@@ -139,7 +161,12 @@ function LayerList({ state, onSetLayerTotalCount }: Pick<ImpositionPanelProps, '
 
 export function ImpositionPanel(props: ImpositionPanelProps) {
   const { state, update } = props;
-  const hasUnderprint = state.layers.some(l => l.underprint);
+  // 直接用匯出自己的判準，不要在面板裡另寫一套：舊的 hasUnderprint 是
+  // `layers.some(l => l.underprint)`，跟匯出實際用的「非 null 且長度 > 0、且已排入版面」
+  // 並不相同，白墨是空陣列時按鈕仍可按。刀模那顆則根本沒有對應的判準。
+  const exportableKinds = kindsWithContent(state);
+  const hasUnderprint = exportableKinds.includes('underprint');
+  const hasCut = exportableKinds.includes('cut');
   const zoomOptions = zoomOptionsFor(state.zoom);
   const notPlacedCount = state.instances.filter(i => i.sheetId === null).length;
   // 排圖按鈕的停用條件之一：清單裡的尺寸全部被停用（清單本身是空的時候，這裡的 every 會是 vacuously true，
@@ -229,7 +256,7 @@ export function ImpositionPanel(props: ImpositionPanelProps) {
         <ActionButton variant="primary" onClick={props.onExportLayers} disabled={!canExport || props.isSvgExporting} testId="export-imposition-layers">
           <Download className="w-3 h-3" /> 分層 SVG（依內容分層，只輸出有內容的層，每層每張版面各一檔）
         </ActionButton>
-        <ActionButton onClick={props.onExportCut} disabled={!canExport || props.isSvgExporting} testId="export-imposition-cut">
+        <ActionButton onClick={props.onExportCut} disabled={!canExport || !hasCut || props.isSvgExporting} testId="export-imposition-cut">
           <Download className="w-3 h-3" /> 只有刀模 SVG（每張版面一檔）
         </ActionButton>
         <ActionButton onClick={props.onExportUnderprint} disabled={!canExport || !hasUnderprint || props.isSvgExporting} testId="export-imposition-underprint">

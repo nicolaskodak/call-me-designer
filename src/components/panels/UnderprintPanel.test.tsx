@@ -25,6 +25,8 @@ const baseProps: UnderprintPanelProps = {
   onShowCutReferenceChange: () => {},
   onExport: () => {},
   onSendToImposition: () => {},
+  cutPending: false,
+  cutPathCount: 1,
 };
 
 function renderPanel(geometry: GeometryState) {
@@ -57,5 +59,18 @@ describe('UnderprintPanel「送到 Imposition」：白墨幾何算完前停用�
   it('沒有來源圖片時仍然停用（既有行為不變）', () => {
     render(<UnderprintPanel {...baseProps} hasSource={false} geometry={{ status: 'ready', result: null, error: null }} />);
     expect(sendButton().disabled).toBe(true);
+  });
+
+  // 這顆按鈕在白墨分頁，但 sendToImposition 同時會抓刀模資料
+  it('白墨算完、但刀模還在算時也要停用', () => {
+    render(<UnderprintPanel {...baseProps} cutPending geometry={{ status: 'ready', result: null, error: null }} />);
+    expect(sendButton().disabled).toBe(true);
+    expect(screen.getByTestId('cut-pending-hint').textContent).toContain('刀模計算中');
+  });
+
+  it('白墨算完、刀模也就緒，但編輯器還沒有刀模路徑時也要停用', () => {
+    render(<UnderprintPanel {...baseProps} cutPathCount={0} geometry={{ status: 'ready', result: null, error: null }} />);
+    expect(sendButton().disabled).toBe(true);
+    expect(screen.getByTestId('cut-empty-hint').textContent).toContain('沒有刀模路徑');
   });
 });
