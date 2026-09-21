@@ -25,6 +25,13 @@ export interface UnderprintPanelProps {
   onShowCutReferenceChange: (value: boolean) => void;
   onExport: () => void;
   onSendToImposition?: () => void;
+  /**
+   * 刀模幾何是否還沒算完。這顆按鈕雖然在白墨分頁，但 sendToImposition 同時會抓刀模資料，
+   * 所以刀模沒算完一樣會把圖層定型成「沒有刀模」。
+   */
+  cutPending: boolean;
+  /** 編輯器是否已經消化過當前這份刀模幾何結果；理由同 CutlinePanel 的同名 prop */
+  cutPathsApplied: boolean;
 }
 
 function SettingsSection({ params, onParamsChange }: Pick<UnderprintPanelProps, 'params' | 'onParamsChange'>) {
@@ -86,12 +93,16 @@ export function UnderprintPanel(props: UnderprintPanelProps) {
             <ActionButton
               variant="primary"
               onClick={props.onSendToImposition}
-              disabled={!hasSource || underprintPending}
+              disabled={!hasSource || underprintPending || props.cutPending || !props.cutPathsApplied}
               testId="send-to-imposition-under"
             >
               <Send className="w-3 h-3" /> 送到 Imposition
             </ActionButton>
-            {hasSource && underprintPending ? (
+            {hasSource && props.cutPending ? (
+              <p className="text-[10px] text-neutral-500" data-testid="cut-pending-hint">刀模計算中，請稍候…</p>
+            ) : hasSource && !props.cutPathsApplied ? (
+              <p className="text-[10px] text-neutral-500" data-testid="cut-applying-hint">刀模路徑套用中，請稍候…</p>
+            ) : hasSource && underprintPending ? (
               <p className="text-[10px] text-neutral-500" data-testid="underprint-pending-hint">白墨計算中，請稍候…</p>
             ) : null}
           </>

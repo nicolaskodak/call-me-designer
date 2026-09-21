@@ -39,6 +39,14 @@ export interface CutlinePanelProps {
   underprintEnabled: boolean;
   /** 白墨幾何是否還沒算完（見 isGeometryPending）；只有在 underprintEnabled 也是 true 時才有意義 */
   underprintPending: boolean;
+  /** 刀模幾何是否還沒算完；與白墨不同，刀模沒有「啟用」的概念，永遠都要擋 */
+  cutPending: boolean;
+  /**
+   * 編輯器是否已經消化過當前這份刀模幾何結果。光看 cutPending 不夠：幾何回報 ready 之後，
+   * 編輯器還要再一步才把結果吃進去，中間那段 getPathData() 仍是空的（實測約 0.6 秒）。
+   * 注意這不等於「有沒有路徑」——沒有刀模的來源本來就該送得出去。
+   */
+  cutPathsApplied: boolean;
 }
 
 function GenerationSection({ params, onParamsChange }: Pick<CutlinePanelProps, 'params' | 'onParamsChange'>) {
@@ -95,6 +103,20 @@ export function CutlinePanel(props: CutlinePanelProps) {
   // 是同一個競態，只是這裡是從 Editor 分頁觸發。未啟用白墨（使用者根本不要白墨）時
   // 完全不受白墨計算狀態影響，正常流程不會被誤擋。
   const blockedByUnderprint = props.underprintEnabled && props.underprintPending;
+  // 刀模幾何還沒算完時，getPathData() 回傳空陣列，圖層被永久定型成「沒有刀模」：
+  // 圖層列照樣寫著「刀模」，分層匯出卻安靜地少掉刀模檔，toast 仍報成功，送印才發現不能切。
+  // 實測（20 倍 CPU 節流、極小的測試圖）這個窗口有 1.4 秒，圖越複雜越長，人很容易按進去。
+  // 「幾何 ready」與「編輯器拿到路徑」是兩個時刻，中間送出一樣會定型成沒有刀模。
+  // 擋的是「還沒套用」，不是「沒有路徑」——沒有刀模的來源要送得出去，Imposition 會如實標示。
+  const applying = !props.cutPending && !props.cutPathsApplied;
+  const blocked = blockedByUnderprint || props.cutPending || applying;
+  const blockReason = props.cutPending
+    ? { testId: 'cut-pending-hint', text: '刀模計算中，請稍候…' }
+    : applying
+      ? { testId: 'cut-applying-hint', text: '刀模路徑套用中，請稍候…' }
+      : blockedByUnderprint
+        ? { testId: 'underprint-pending-hint', text: '白墨計算中，請稍候…' }
+        : null;
   return (
     <>
       <GenerationSection params={params} onParamsChange={onParamsChange} />
@@ -125,13 +147,13 @@ export function CutlinePanel(props: CutlinePanelProps) {
             <ActionButton
               variant="primary"
               onClick={props.onSendToImposition}
-              disabled={!hasSource || blockedByUnderprint}
+              disabled={!hasSource || blocked}
               testId="send-to-imposition-cut"
             >
               <Send className="w-3 h-3" /> 送到 Imposition
             </ActionButton>
-            {hasSource && blockedByUnderprint ? (
-              <p className="text-[10px] text-neutral-500" data-testid="underprint-pending-hint">白墨計算中，請稍候…</p>
+            {hasSource && blockReason ? (
+              <p className="text-[10px] text-neutral-500" data-testid={blockReason.testId}>{blockReason.text}</p>
             ) : null}
           </>
         ) : null}

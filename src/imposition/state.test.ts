@@ -6,6 +6,8 @@ import {
   enabledSizes,
   kindsWithContent,
   layerBoxMm,
+  layerHasCut,
+  layerHasUnderprint,
   LAYOUT_STALE_MESSAGE,
   moveInstance,
   NO_ENABLED_SIZE_MESSAGE,
@@ -436,6 +438,19 @@ describe('layoutStale：匯出把關的依據', () => {
     const widened = setMinGapMm(laid, 8);
     expect(widened.minGapMm).toBe(8);
     expect(widened.layoutStale).toBe(true);
+  });
+});
+
+describe('layerHasCut／layerHasUnderprint：匯出與畫面共用的判準', () => {
+  it('空的 paths 陣列不算有刀模——圖層列不該因此顯示「刀模」', () => {
+    expect(layerHasCut(layer({ cut: { kind: 'paths', paths: [] } }))).toBe(false);
+    expect(layerHasCut(layer({ cut: { kind: 'paths', paths: [{ d: 'M0 0Z' }] } }))).toBe(true);
+  });
+
+  it('空的白墨陣列不算有白墨——舊的 layers.some(l => l.underprint) 會誤判成有', () => {
+    expect(layerHasUnderprint(layer({ underprint: [] }))).toBe(false);
+    expect(layerHasUnderprint(layer({ underprint: null }))).toBe(false);
+    expect(layerHasUnderprint(layer({ underprint: [{ d: 'M0 0Z' }] }))).toBe(true);
   });
 });
 
