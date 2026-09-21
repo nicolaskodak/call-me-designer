@@ -42,10 +42,11 @@ export interface CutlinePanelProps {
   /** 刀模幾何是否還沒算完；與白墨不同，刀模沒有「啟用」的概念，永遠都要擋 */
   cutPending: boolean;
   /**
-   * 編輯器目前持有的刀模路徑數。光看 cutPending 不夠：幾何回報 ready 之後，編輯器還要
-   * 再一步才把結果吃進去，中間那段 getPathData() 仍是空的。實測這段殘留約 0.6 秒。
+   * 編輯器是否已經消化過當前這份刀模幾何結果。光看 cutPending 不夠：幾何回報 ready 之後，
+   * 編輯器還要再一步才把結果吃進去，中間那段 getPathData() 仍是空的（實測約 0.6 秒）。
+   * 注意這不等於「有沒有路徑」——沒有刀模的來源本來就該送得出去。
    */
-  cutPathCount: number;
+  cutPathsApplied: boolean;
 }
 
 function GenerationSection({ params, onParamsChange }: Pick<CutlinePanelProps, 'params' | 'onParamsChange'>) {
@@ -105,14 +106,14 @@ export function CutlinePanel(props: CutlinePanelProps) {
   // 刀模幾何還沒算完時，getPathData() 回傳空陣列，圖層被永久定型成「沒有刀模」：
   // 圖層列照樣寫著「刀模」，分層匯出卻安靜地少掉刀模檔，toast 仍報成功，送印才發現不能切。
   // 實測（20 倍 CPU 節流、極小的測試圖）這個窗口有 1.4 秒，圖越複雜越長，人很容易按進去。
-  // 「幾何 ready」與「編輯器拿到路徑」是兩個時刻，中間送出一樣會定型成沒有刀模；而從按鈕
-  // 的角度，這段空窗與「這張圖真的沒有刀模」長得一模一樣，所以兩者都擋，只是說法不同。
-  const noCutPaths = !props.cutPending && props.cutPathCount === 0;
-  const blocked = blockedByUnderprint || props.cutPending || noCutPaths;
+  // 「幾何 ready」與「編輯器拿到路徑」是兩個時刻，中間送出一樣會定型成沒有刀模。
+  // 擋的是「還沒套用」，不是「沒有路徑」——沒有刀模的來源要送得出去，Imposition 會如實標示。
+  const applying = !props.cutPending && !props.cutPathsApplied;
+  const blocked = blockedByUnderprint || props.cutPending || applying;
   const blockReason = props.cutPending
     ? { testId: 'cut-pending-hint', text: '刀模計算中，請稍候…' }
-    : noCutPaths
-      ? { testId: 'cut-empty-hint', text: '目前沒有刀模路徑，無法送出；請調整參數或確認圖片有不透明區域。' }
+    : applying
+      ? { testId: 'cut-applying-hint', text: '刀模路徑套用中，請稍候…' }
       : blockedByUnderprint
         ? { testId: 'underprint-pending-hint', text: '白墨計算中，請稍候…' }
         : null;

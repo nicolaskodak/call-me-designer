@@ -109,6 +109,16 @@ const App: React.FC = () => {
   // 同理用在刀模：sendToImposition 在點擊當下才呼叫 cutEditor.getPathData()，刀模還沒算完
   // 就送出會把圖層定型成「沒有刀模」。hasSource 只看圖片載入完沒有，擋不住這條。
   const cutGeometryPending = isGeometryPending(cutGeometry.status);
+  // 只看 status 還不夠：「worker 回報 ready」與「編輯器把結果吃進去」是兩個時刻，中間
+  // getPathData() 仍是空的（實測殘留約 0.6 秒）。但不能改用「編輯器有沒有路徑」當判準——
+  // 沒有刀模的來源本來就該送得出去，只是 Imposition 要如實標示它沒有刀模。
+  //
+  // 所以比對的是「編輯器最後一次回報路徑時，手上是哪一份 polygons」與「現在是哪一份」：
+  // 兩者相同就代表編輯器已經消化過當前結果，不論消化的結果是幾條路徑、甚至零條。
+  // 使用者手動刪光路徑也會觸發 onPathsChange，因此一樣算已套用，不會被誤擋。
+  const cutPolygons = cutGeometry.result?.polygons ?? null;
+  const [appliedCutPolygons, setAppliedCutPolygons] = useState<typeof cutPolygons | undefined>(undefined);
+  const cutPathsApplied = appliedCutPolygons === cutPolygons;
 
   const imposition = useImposition(activeTab === 'imposition', settings.defaultDpi, settings.sheetSizes);
   const [notice, setNotice] = useState<string | null>(null);
@@ -302,7 +312,7 @@ const App: React.FC = () => {
               underprintEnabled={underprintEnabled}
               underprintPending={underprintGeometryPending}
               cutPending={cutGeometryPending}
-              cutPathCount={cut.paths.length}
+              cutPathsApplied={cutPathsApplied}
             />
           </>
         ) : null}
@@ -316,7 +326,7 @@ const App: React.FC = () => {
               dpi={dpi}
               hasSource={Boolean(source)}
               cutPending={cutGeometryPending}
-              cutPathCount={cut.paths.length}
+              cutPathsApplied={cutPathsApplied}
               canUndo={under.canUndo}
               canRedo={under.canRedo}
               onUndo={() => under.ref.current?.undo()}
@@ -399,6 +409,13 @@ const App: React.FC = () => {
             active={activeTab === 'editor'}
             testId="cut-canvas"
             {...cut.callbacks}
+            // 這個 callback 的閉包抓的是「這一次 render 的 cutPolygons」，而編輯器的 effect
+            // 就在這次 render 提交之後執行，所以記下來的一定是它剛消化的那一份。
+            // 不用 useEffect 去重設旗標：子元件的 effect 比父元件早跑，那樣會永遠鎖死。
+            onPathsChange={paths => {
+              cut.callbacks.onPathsChange(paths);
+              setAppliedCutPolygons(cutPolygons);
+            }}
           />
         </div>
         <div className="absolute inset-0" hidden={activeTab !== 'underprint'}>

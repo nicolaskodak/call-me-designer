@@ -30,8 +30,8 @@ export interface UnderprintPanelProps {
    * 所以刀模沒算完一樣會把圖層定型成「沒有刀模」。
    */
   cutPending: boolean;
-  /** 編輯器目前持有的刀模路徑數；理由同 CutlinePanel 的同名 prop */
-  cutPathCount: number;
+  /** 編輯器是否已經消化過當前這份刀模幾何結果；理由同 CutlinePanel 的同名 prop */
+  cutPathsApplied: boolean;
 }
 
 function SettingsSection({ params, onParamsChange }: Pick<UnderprintPanelProps, 'params' | 'onParamsChange'>) {
@@ -93,15 +93,15 @@ export function UnderprintPanel(props: UnderprintPanelProps) {
             <ActionButton
               variant="primary"
               onClick={props.onSendToImposition}
-              disabled={!hasSource || underprintPending || props.cutPending || props.cutPathCount === 0}
+              disabled={!hasSource || underprintPending || props.cutPending || !props.cutPathsApplied}
               testId="send-to-imposition-under"
             >
               <Send className="w-3 h-3" /> 送到 Imposition
             </ActionButton>
             {hasSource && props.cutPending ? (
               <p className="text-[10px] text-neutral-500" data-testid="cut-pending-hint">刀模計算中，請稍候…</p>
-            ) : hasSource && props.cutPathCount === 0 ? (
-              <p className="text-[10px] text-neutral-500" data-testid="cut-empty-hint">目前沒有刀模路徑，無法送出；請回 Die-cut 分頁確認。</p>
+            ) : hasSource && !props.cutPathsApplied ? (
+              <p className="text-[10px] text-neutral-500" data-testid="cut-applying-hint">刀模路徑套用中，請稍候…</p>
             ) : hasSource && underprintPending ? (
               <p className="text-[10px] text-neutral-500" data-testid="underprint-pending-hint">白墨計算中，請稍候…</p>
             ) : null}

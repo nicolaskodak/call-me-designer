@@ -26,7 +26,7 @@ const baseProps: UnderprintPanelProps = {
   onExport: () => {},
   onSendToImposition: () => {},
   cutPending: false,
-  cutPathCount: 1,
+  cutPathsApplied: true,
 };
 
 function renderPanel(geometry: GeometryState) {
@@ -68,9 +68,9 @@ describe('UnderprintPanel「送到 Imposition」：白墨幾何算完前停用�
     expect(screen.getByTestId('cut-pending-hint').textContent).toContain('刀模計算中');
   });
 
-  it('白墨算完、刀模也就緒，但編輯器還沒有刀模路徑時也要停用', () => {
-    render(<UnderprintPanel {...baseProps} cutPathCount={0} geometry={{ status: 'ready', result: null, error: null }} />);
+  it('白墨算完、刀模也就緒，但編輯器還沒消化刀模結果時也要停用', () => {
+    render(<UnderprintPanel {...baseProps} cutPathsApplied={false} geometry={{ status: 'ready', result: null, error: null }} />);
     expect(sendButton().disabled).toBe(true);
-    expect(screen.getByTestId('cut-empty-hint').textContent).toContain('沒有刀模路徑');
+    expect(screen.getByTestId('cut-applying-hint').textContent).toContain('套用中');
   });
 });
